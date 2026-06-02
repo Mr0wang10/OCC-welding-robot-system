@@ -1,38 +1,33 @@
-# Visual Studio
+# Visual Studio cache
 .vs/
-*.sln
-*.vcxproj
-*.filters
+*.sdf
+*.suo
 *.user
 *.aps
+ipch/
+*.ipch
 
 # Build output
-x64/
+x64/Debug/
+x64/Release/
+**/x64/Debug/
+**/x64/Release/
 *.obj
 *.pch
 *.tlog
-*.ipch
-*.pdb
 *.ilk
-*.exe
-*.res
+*.pdb
 *.recipe
-*.db
-*.suo
-*.bin
 *.lastbuildstate
-*.log
-*.txt
+*.unsuccessfulbuild
 FileListAbsolute.txt
 
 # Claude/Copilot
 .claude/
 .github/copilot-instructions.md
 
-# Misc
-*.STL
-*.stl
-*.brep
-*.lib
+# Temp files
+*.log
+__pycache__/
 *.zip
 函数.txt
