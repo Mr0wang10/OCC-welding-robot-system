@@ -22,9 +22,7 @@
 - vcpkg 依赖：Assimp、FCL、OMPL、Boost、Octomap、TBB 等
 - 外部运动学库：`Kine6Dof.lib` / `Kine6Dof.dll`
 
-工程配置中存在本机绝对路径依赖，例如：
-- `D:\OCCT780\...`
-- `D:\dev\vcpkg\...`
+
 
 如果在其他机器构建，优先检查 `OCC_MFC.vcxproj` 中的 `AdditionalIncludeDirectories`、`AdditionalLibraryDirectories` 和 `AdditionalDependencies`。
 ## 目录结构要点
