@@ -1,0 +1,38 @@
+# Visual Studio
+.vs/
+*.sln
+*.vcxproj
+*.filters
+*.user
+*.aps
+
+# Build output
+x64/
+*.obj
+*.pch
+*.tlog
+*.ipch
+*.pdb
+*.ilk
+*.exe
+*.res
+*.recipe
+*.db
+*.suo
+*.bin
+*.lastbuildstate
+*.log
+*.txt
+FileListAbsolute.txt
+
+# Claude/Copilot
+.claude/
+.github/copilot-instructions.md
+
+# Misc
+*.STL
+*.stl
+*.brep
+*.lib
+*.zip
+函数.txt

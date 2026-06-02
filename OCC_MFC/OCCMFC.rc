@@ -1,0 +1,634 @@
+// Microsoft Visual C++ generated resource script.
+//
+#include "resource.h"
+
+#define APSTUDIO_READONLY_SYMBOLS
+/////////////////////////////////////////////////////////////////////////////
+//
+// Generated from the TEXTINCLUDE 2 resource.
+//
+#ifndef APSTUDIO_INVOKED
+#include "targetver.h"
+#endif
+#include "afxres.h"
+#include "verrsrc.h"
+
+/////////////////////////////////////////////////////////////////////////////
+#undef APSTUDIO_READONLY_SYMBOLS
+
+/////////////////////////////////////////////////////////////////////////////
+// 中文(简体，中国) resources
+
+#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_CHS)
+LANGUAGE LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED
+#pragma code_page(936)
+
+#ifdef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// TEXTINCLUDE
+//
+
+1 TEXTINCLUDE 
+BEGIN
+    "resource.h\0"
+END
+
+2 TEXTINCLUDE 
+BEGIN
+    "#ifndef APSTUDIO_INVOKED\r\n"
+    "#include ""targetver.h""\r\n"
+    "#endif\r\n"
+    "#include ""afxres.h""\r\n"
+    "#include ""verrsrc.h""\r\n"
+    "\0"
+END
+
+3 TEXTINCLUDE 
+BEGIN
+    "#define _AFX_NO_OLE_RESOURCES\r\n"
+    "#define _AFX_NO_TRACKER_RESOURCES\r\n"
+    "#define _AFX_NO_PROPERTY_RESOURCES\r\n"
+    "\r\n"
+    "#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_CHS)\r\n"
+    "LANGUAGE 4, 2\r\n"
+    "#if !defined(_AFXDLL)\r\n"
+    "#endif\r\n"
+    "#endif\r\n"
+    "\0"
+END
+
+#endif    // APSTUDIO_INVOKED
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Icon
+//
+
+// Icon with lowest ID value placed first to ensure application icon
+// remains consistent on all systems.
+IDR_MAINFRAME           ICON                    "res\\OCC_MFC.ico"
+
+IDR_OCCMFCTYPE          ICON                    "res\\OCC_MFCDoc.ico"
+
+IDI_FILE_VIEW           ICON                    "res\\file_view.ico"
+
+IDI_FILE_VIEW_HC        ICON                    "res\\file_view_hc.ico"
+
+IDI_CLASS_VIEW          ICON                    "res\\class_view.ico"
+
+IDI_CLASS_VIEW_HC       ICON                    "res\\class_view_hc.ico"
+
+IDI_OUTPUT_WND          ICON                    "res\\output_wnd.ico"
+
+IDI_OUTPUT_WND_HC       ICON                    "res\\output_wnd_hc.ico"
+
+IDI_PROPERTIES_WND      ICON                    "res\\properties_wnd.ico"
+
+IDI_PROPERTIES_WND_HC   ICON                    "res\\properties_wnd_hc.ico"
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Bitmap
+//
+
+IDR_MAINFRAME           BITMAP                  "res\\Toolbar.bmp"
+
+IDR_MAINFRAME_256       BITMAP                  "res\\Toolbar256.bmp"
+
+IDR_SORT                BITMAP                  "res\\sort.bmp"
+
+IDB_SORT_24             BITMAP                  "res\\sort_hc.bmp"
+
+IDB_FILE_VIEW           BITMAP                  "res\\fileview.bmp"
+
+IDB_FILE_VIEW_24        BITMAP                  "res\\fileview_hc.bmp"
+
+IDB_CLASS_VIEW          BITMAP                  "res\\classview.bmp"
+
+IDB_CLASS_VIEW_24       BITMAP                  "res\\classview_hc.bmp"
+
+IDR_EXPLORER            BITMAP                  "res\\explorer.bmp"
+
+IDB_EXPLORER_24         BITMAP                  "res\\explorer_hc.bmp"
+
+IDR_MENU_IMAGES         BITMAP                  "res\\menuimages.bmp"
+
+IDB_MENU_IMAGES_24      BITMAP                  "res\\menuimages_hc.bmp"
+
+IDR_PROPERTIES          BITMAP                  "res\\properties.bmp"
+
+IDB_PROPERTIES_HC       BITMAP                  "res\\properties_hc.bmp"
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Toolbar
+//
+
+IDR_MAINFRAME TOOLBAR 16, 15
+BEGIN
+    BUTTON      ID_FILE_NEW
+    BUTTON      ID_FILE_OPEN
+    BUTTON      ID_FILE_SAVE
+    SEPARATOR
+    BUTTON      ID_EDIT_CUT
+    BUTTON      ID_EDIT_COPY
+    BUTTON      ID_EDIT_PASTE
+    SEPARATOR
+    BUTTON      ID_FILE_PRINT
+    BUTTON      ID_APP_ABOUT
+END
+
+IDR_MAINFRAME_256 TOOLBAR 16, 15
+BEGIN
+    BUTTON      ID_FILE_NEW
+    BUTTON      ID_FILE_OPEN
+    BUTTON      ID_FILE_SAVE
+    SEPARATOR
+    BUTTON      ID_EDIT_CUT
+    BUTTON      ID_EDIT_COPY
+    BUTTON      ID_EDIT_PASTE
+    SEPARATOR
+    BUTTON      ID_FILE_PRINT
+    BUTTON      ID_APP_ABOUT
+END
+
+IDR_SORT TOOLBAR 16, 15
+BEGIN
+    BUTTON      ID_SORT_MENU
+    BUTTON      ID_NEW_FOLDER
+END
+
+IDR_EXPLORER TOOLBAR 16, 15
+BEGIN
+    BUTTON      ID_PROPERTIES
+END
+
+IDR_MENU_IMAGES TOOLBAR 16, 15
+BEGIN
+    BUTTON      ID_WINDOW_MANAGER
+    SEPARATOR
+    BUTTON      ID_WINDOW_CASCADE
+    BUTTON      ID_WINDOW_TILE_HORZ
+    BUTTON      ID_TOOLS_MACRO
+    BUTTON      ID_SORTING_SORTALPHABETIC
+    BUTTON      ID_SORTING_SORTBYTYPE
+    BUTTON      ID_SORTING_SORTBYACCESS
+    BUTTON      ID_SORTING_GROUPBYTYPE
+END
+
+IDR_PROPERTIES TOOLBAR 16, 15
+BEGIN
+    BUTTON      ID_EXPAND_ALL
+    BUTTON      ID_SORTPROPERTIES
+    BUTTON      ID_PROPERTIES1
+    BUTTON      ID_PROPERTIES2
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Menu
+//
+
+IDR_MAINFRAME MENU
+BEGIN
+    POPUP "&File"
+    BEGIN
+        MENUITEM "&New\tCtrl+N",                ID_FILE_NEW
+        MENUITEM "&Open...\tCtrl+O",            ID_FILE_OPEN
+        MENUITEM "&Save\tCtrl+S",               ID_FILE_SAVE
+        MENUITEM "Save &As...",                 ID_FILE_SAVE_AS
+        MENUITEM SEPARATOR
+        MENUITEM "&Print...\tCtrl+P",           ID_FILE_PRINT
+        MENUITEM "Print Pre&view",              ID_FILE_PRINT_PREVIEW
+        MENUITEM "P&rint Setup...",             ID_FILE_PRINT_SETUP
+        MENUITEM SEPARATOR
+        MENUITEM "Recent File",                 ID_FILE_MRU_FILE1, GRAYED
+        MENUITEM SEPARATOR
+        MENUITEM "E&xit",                       ID_APP_EXIT
+    END
+    POPUP "&Edit"
+    BEGIN
+        MENUITEM "&Undo\tCtrl+Z",               ID_EDIT_UNDO
+        MENUITEM SEPARATOR
+        MENUITEM "Cu&t\tCtrl+X",                ID_EDIT_CUT
+        MENUITEM "&Copy\tCtrl+C",               ID_EDIT_COPY
+        MENUITEM "&Paste\tCtrl+V",              ID_EDIT_PASTE
+    END
+    POPUP "&View"
+    BEGIN
+        POPUP "&Toolbars"
+        BEGIN
+            MENUITEM "<placeholder>",               ID_VIEW_TOOLBAR
+        END
+        MENUITEM "Status &Bar",                 ID_VIEW_STATUS_BAR
+        POPUP "Application &Look"
+        BEGIN
+            MENUITEM "Windows 2000(&2)",            ID_VIEW_APPLOOK_WIN_2000
+            MENUITEM "Office XP(&X)",               ID_VIEW_APPLOOK_OFF_XP
+            MENUITEM "Windows XP(&W)",              ID_VIEW_APPLOOK_WIN_XP
+            MENUITEM "Office 2003(&3)",             ID_VIEW_APPLOOK_OFF_2003
+            MENUITEM "Visual Studio 2005(&5)",      ID_VIEW_APPLOOK_VS_2005
+            MENUITEM "Visual Studio 2008(&8)",      ID_VIEW_APPLOOK_VS_2008
+            POPUP "Office 2007(&7)"
+            BEGIN
+                MENUITEM "&Blue style",                 ID_VIEW_APPLOOK_OFF_2007_BLUE
+                MENUITEM "&Black style",                ID_VIEW_APPLOOK_OFF_2007_BLACK
+                MENUITEM "&Silver style",               ID_VIEW_APPLOOK_OFF_2007_SILVER
+                MENUITEM "&Aqua style",                 ID_VIEW_APPLOOK_OFF_2007_AQUA
+            END
+        END
+    END
+    POPUP "&Hide"
+    BEGIN
+        MENUITEM "&About OCC_MFC...",           ID_APP_ABOUT
+    END
+    POPUP "Robot"
+    BEGIN
+        MENUITEM "Clear All",                   ID_BUTTON_CLEAR_ALL
+    END
+    POPUP "Robot Model"
+    BEGIN
+        POPUP "Fanuc"
+        BEGIN
+            MENUITEM "M10iD12",                     ID_FANUC_M10ID12
+        END
+        POPUP "ABB"
+        BEGIN
+            MENUITEM "ABB 1410",                    ID_ABB_ABB1410
+        END
+        POPUP "EFORT"
+        BEGIN
+            MENUITEM "ER20D-C10",                   ID_EFORT_ER20D
+        END
+        POPUP "GSK"
+        BEGIN
+            MENUITEM "GSK RB08",                    ID_GSK_GSKRB08
+            MENUITEM "GSK RB20",                    ID_GSK_GSKRB20
+        END
+        POPUP "Kawasaki"
+        BEGIN
+            MENUITEM "BA006N",                      ID_KAWASAKI_BA006N
+        END
+        POPUP "STEP"
+        BEGIN
+            MENUITEM "STEP SA1400",                 ID_STEP_STEPSA1400
+            MENUITEM "STEP SA1800",                 ID_STEP_STEPSA1800
+        END
+    END
+END
+
+IDR_POPUP_EDIT MENU
+BEGIN
+    POPUP "&Edit"
+    BEGIN
+        MENUITEM "Cu&t\tCtrl+X",                ID_EDIT_CUT
+        MENUITEM "&Copy\tCtrl+C",               ID_EDIT_COPY
+        MENUITEM "&Paste\tCtrl+V",              ID_EDIT_PASTE
+    END
+END
+
+IDR_POPUP_SORT MENU
+BEGIN
+    POPUP "Sort"
+    BEGIN
+        MENUITEM "Sort &Alphabetically",        ID_SORTING_SORTALPHABETIC
+        MENUITEM "Sort by &Type",               ID_SORTING_SORTBYTYPE
+        MENUITEM "Sort by &Access",             ID_SORTING_SORTBYACCESS
+        MENUITEM "&Group by Type",              ID_SORTING_GROUPBYTYPE
+    END
+END
+
+IDR_POPUP_EXPLORER MENU
+BEGIN
+    POPUP "Source Code"
+    BEGIN
+        MENUITEM "&Open",                       ID_OPEN
+        MENUITEM SEPARATOR
+        MENUITEM "&Compile",                    ID_DUMMY_COMPILE
+        MENUITEM SEPARATOR
+        MENUITEM "Cu&t\tCtrl+X",                ID_EDIT_CUT
+        MENUITEM "&Copy\tCtrl+C",               ID_EDIT_COPY
+        MENUITEM "C&lear",                      ID_EDIT_CLEAR
+        MENUITEM SEPARATOR
+        MENUITEM "&Properties...",              ID_PROPERTIES
+    END
+END
+
+IDR_OUTPUT_POPUP MENU
+BEGIN
+    POPUP "                  "
+    BEGIN
+        MENUITEM "&Compile",                    ID_EDIT_COPY
+        MENUITEM "C&lear",                      ID_EDIT_CLEAR
+        MENUITEM SEPARATOR
+        MENUITEM "&Hide",                       ID_VIEW_OUTPUTWND
+    END
+END
+
+IDR_HELP_MENU MENU
+BEGIN
+    MENUITEM "&About OCC_MFC...",           ID_APP_ABOUT
+END
+
+IDR_THEME_MENU MENU
+BEGIN
+    MENUITEM "Windows 7(&D)",               ID_VIEW_APPLOOK_WINDOWS_7
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Accelerator
+//
+
+IDR_MAINFRAME ACCELERATORS
+BEGIN
+    "N",            ID_FILE_NEW,            VIRTKEY, CONTROL
+    "O",            ID_FILE_OPEN,           VIRTKEY, CONTROL
+    "S",            ID_FILE_SAVE,           VIRTKEY, CONTROL
+    "P",            ID_FILE_PRINT,          VIRTKEY, CONTROL
+    "Z",            ID_EDIT_UNDO,           VIRTKEY, CONTROL
+    "X",            ID_EDIT_CUT,            VIRTKEY, CONTROL
+    "C",            ID_EDIT_COPY,           VIRTKEY, CONTROL
+    "V",            ID_EDIT_PASTE,          VIRTKEY, CONTROL
+    VK_BACK,        ID_EDIT_UNDO,           VIRTKEY, ALT
+    VK_DELETE,      ID_EDIT_CUT,            VIRTKEY, SHIFT
+    VK_INSERT,      ID_EDIT_COPY,           VIRTKEY, CONTROL
+    VK_INSERT,      ID_EDIT_PASTE,          VIRTKEY, SHIFT
+    VK_F6,          ID_NEXT_PANE,           VIRTKEY 
+    VK_F6,          ID_PREV_PANE,           VIRTKEY, SHIFT
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Dialog
+//
+
+IDD_ABOUTBOX DIALOGEX 0, 0, 170, 62
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "About OCC_MFC"
+FONT 9, "MS Shell Dlg", 0, 0, 0x1
+BEGIN
+    ICON            IDR_MAINFRAME,IDC_STATIC,14,14,21,20
+END
+
+IDD_ROBOT_CONTROL_PANEL DIALOGEX 0, 0, 256, 310
+STYLE DS_SETFONT | DS_FIXEDSYS | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_SYSMENU
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+END
+
+IDD_PAGE_ROBOT DIALOGEX 0, 0, 256, 459
+STYLE DS_SETFONT | DS_FIXEDSYS | DS_CONTROL | WS_CHILD | WS_CAPTION
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    LTEXT           "关节1",IDC_STATIC,23,21,22,8
+    LTEXT           "关节2",IDC_STATIC,24,38,22,8
+    LTEXT           "关节3",IDC_STATIC,24,57,22,8
+    LTEXT           "关节4",IDC_STATIC,24,74,22,8
+    LTEXT           "关节5",IDC_STATIC,24,91,22,8
+    LTEXT           "关节6",IDC_STATIC,24,108,22,8
+    EDITTEXT        IDC_EDIT_J1,64,19,40,14,ES_AUTOHSCROLL
+    CONTROL         "",IDC_SLIDER_J1,"msctls_trackbar32",TBS_BOTH | TBS_NOTICKS | WS_TABSTOP,108,21,90,12
+    EDITTEXT        IDC_EDIT_J2,64,36,40,14,ES_AUTOHSCROLL
+    CONTROL         "",IDC_SLIDER_J2,"msctls_trackbar32",TBS_BOTH | TBS_NOTICKS | WS_TABSTOP,109,38,90,12
+    EDITTEXT        IDC_EDIT_J3,64,55,40,14,ES_AUTOHSCROLL
+    CONTROL         "",IDC_SLIDER_J3,"msctls_trackbar32",TBS_BOTH | TBS_NOTICKS | WS_TABSTOP,109,57,90,12
+    EDITTEXT        IDC_EDIT_J4,64,72,40,14,ES_AUTOHSCROLL
+    CONTROL         "",IDC_SLIDER_J4,"msctls_trackbar32",TBS_BOTH | TBS_NOTICKS | WS_TABSTOP,109,74,90,12
+    EDITTEXT        IDC_EDIT_J5,64,89,40,14,ES_AUTOHSCROLL
+    CONTROL         "",IDC_SLIDER_J5,"msctls_trackbar32",TBS_BOTH | TBS_NOTICKS | WS_TABSTOP,109,91,90,12
+    EDITTEXT        IDC_EDIT_J6,64,106,40,14,ES_AUTOHSCROLL
+    CONTROL         "",IDC_SLIDER_J6,"msctls_trackbar32",TBS_BOTH | TBS_NOTICKS | WS_TABSTOP,109,108,90,12
+    LTEXT           "机器人位置：",IDC_STATIC,74,129,52,8
+    LTEXT           "机器人姿态：",IDC_STATIC,69,166,52,8
+    PUSHBUTTON      "导入三维模型",IDC_BUTTON_IMPORT_MODEL,63,216,80,18
+    PUSHBUTTON      "删除选中模型",IDC_BUTTON_DELETE_SELECTED,64,265,72,18
+    EDITTEXT        IDC_EDIT_PX,26,148,40,14,ES_AUTOHSCROLL
+    LTEXT           "X",IDC_STATIC,18,151,8,8
+    EDITTEXT        IDC_EDIT_PY,78,148,40,14,ES_AUTOHSCROLL
+    LTEXT           "Y",IDC_STATIC,70,151,8,8
+    EDITTEXT        IDC_EDIT_PZ,127,148,40,14,ES_AUTOHSCROLL
+    LTEXT           "Z",IDC_STATIC,119,151,8,8
+    EDITTEXT        IDC_EDIT_PW,26,185,40,14,ES_AUTOHSCROLL
+    LTEXT           "W",IDC_STATIC,18,188,8,8
+    EDITTEXT        IDC_EDIT_PP,78,185,40,14,ES_AUTOHSCROLL
+    LTEXT           "P",IDC_STATIC,70,188,8,8
+    EDITTEXT        IDC_EDIT_PR,127,185,40,14,ES_AUTOHSCROLL
+    LTEXT           "R",IDC_STATIC,119,188,8,8
+    EDITTEXT        IDC_EDIT_IMPORT_X,38,243,33,14,ES_AUTOHSCROLL
+    LTEXT           "Y:",IDC_STATIC,74,246,12,8
+    EDITTEXT        IDC_EDIT_IMPORT_Y,86,243,34,14,ES_AUTOHSCROLL
+    LTEXT           "Z:",IDC_STATIC,124,246,12,8
+    EDITTEXT        IDC_EDIT_IMPORT_Z,137,244,33,14,ES_AUTOHSCROLL
+    LTEXT           "X:",IDC_STATIC,23,244,12,8
+END
+
+IDD_PAGE_WELD DIALOGEX 0, 0, 223, 428
+STYLE DS_SETFONT | DS_FIXEDSYS | DS_CONTROL | WS_CHILD | WS_CAPTION
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    PUSHBUTTON      "识别焊缝",IDC_BUTTON_IDENTIFY_WELD,7,7,110,24
+    LTEXT           "3D模型焊缝列表",IDC_STATIC_WELD_TITLE,7,35,100,11
+    CONTROL         "",IDC_TAB_WELD,"SysTabControl32",TCS_HOTTRACK | TCS_FIXEDWIDTH | TCS_FOCUSNEVER,7,48,209,12
+    CONTROL         "",IDC_LIST_WELD,"SysListView32",LVS_REPORT | LVS_NOSORTHEADER | WS_BORDER | WS_VSCROLL | WS_HSCROLL | WS_TABSTOP,7,64,209,272
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Version
+//
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 1,0,0,1
+ PRODUCTVERSION 1,0,0,1
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404B0"
+        BEGIN
+            VALUE "FileDescription", "OCC_MFC"
+            VALUE "FileVersion", "1.0.0.1"
+            VALUE "InternalName", "OCC_MFC.exe"
+            VALUE "OriginalFilename", "OCC_MFC.exe"
+            VALUE "ProductVersion", "1.0.0.1"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x804, 1200
+    END
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// DESIGNINFO
+//
+
+#ifdef APSTUDIO_INVOKED
+GUIDELINES DESIGNINFO
+BEGIN
+    IDD_ABOUTBOX, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 163
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 55
+    END
+
+    IDD_ROBOT_CONTROL_PANEL, DIALOG
+    BEGIN
+        LEFTMARGIN, 14
+        RIGHTMARGIN, 249
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 264
+    END
+
+    IDD_PAGE_ROBOT, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 249
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 452
+    END
+
+    IDD_PAGE_WELD, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 216
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 421
+    END
+END
+#endif    // APSTUDIO_INVOKED
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// AFX_DIALOG_LAYOUT
+//
+
+IDD_ROBOT_CONTROL_PANEL AFX_DIALOG_LAYOUT
+BEGIN
+    0
+END
+
+IDD_PAGE_ROBOT AFX_DIALOG_LAYOUT
+BEGIN
+    0
+END
+
+IDD_PAGE_WELD AFX_DIALOG_LAYOUT
+BEGIN
+    0
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// String Table
+//
+
+STRINGTABLE
+BEGIN
+    IDR_MAINFRAME           "OCC_MFC\n\nOCC_MFC\n\n\nOCCMFC.Document\nOCC_MFC.Document"
+END
+
+STRINGTABLE
+BEGIN
+    AFX_IDS_APP_TITLE       "OCC_MFC"
+    AFX_IDS_IDLEMESSAGE     "Sort"
+END
+
+STRINGTABLE
+BEGIN
+    ID_INDICATOR_EXT        "EXT"
+    ID_INDICATOR_CAPS       "CAP"
+    ID_INDICATOR_NUM        "NUM"
+    ID_INDICATOR_SCRL       "SCRL"
+    ID_INDICATOR_OVR        "OVR"
+    ID_INDICATOR_REC        "REC"
+END
+
+STRINGTABLE
+BEGIN
+    ID_EDIT_CLEAR           "Clear selection"
+    ID_EDIT_CLEAR_ALL       "Clear all"
+    ID_EDIT_COPY            "Copy selection"
+    ID_EDIT_CUT             "Cut selection"
+    ID_EDIT_FIND            "Find text"
+    ID_EDIT_PASTE           "Paste from clipboard"
+    ID_EDIT_REPEAT          "Repeat last action"
+    ID_EDIT_REPLACE         "Replace text"
+    ID_EDIT_SELECT_ALL      "Select all"
+END
+
+STRINGTABLE
+BEGIN
+    IDS_STATUS_PANE1        "             1"
+    IDS_STATUS_PANE2        "             2"
+    IDS_TOOLBAR_STANDARD    "Standard"
+    IDS_TOOLBAR_CUSTOMIZE   "Customize"
+END
+
+STRINGTABLE
+BEGIN
+    IDS_FILE_VIEW           "File View"
+    IDS_CLASS_VIEW          "Class View"
+    IDS_OUTPUT_WND          "Robot"
+    IDS_PROPERTIES_WND      "Sort"
+END
+
+STRINGTABLE
+BEGIN
+    IDS_EXPLORER            "Source Files"
+    IDS_EDIT_MENU           "Edit"
+END
+
+STRINGTABLE
+BEGIN
+    IDS_BUILD_TAB           "Sort"
+    IDS_DEBUG_TAB           "Sort"
+    IDS_FIND_TAB            "Find"
+END
+
+#endif    // 中文(简体，中国) resources
+/////////////////////////////////////////////////////////////////////////////
+
+
+
+#ifndef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// Generated from the TEXTINCLUDE 3 resource.
+//
+#define _AFX_NO_OLE_RESOURCES
+#define _AFX_NO_TRACKER_RESOURCES
+#define _AFX_NO_PROPERTY_RESOURCES
+
+#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_CHS)
+LANGUAGE 4, 2
+#if !defined(_AFXDLL)
+#endif
+#endif
+
+/////////////////////////////////////////////////////////////////////////////
+#endif    // not APSTUDIO_INVOKED
+

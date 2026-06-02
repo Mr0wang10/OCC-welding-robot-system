@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <LocalDebuggerEnvironment>PATH=D:/OCCT780/OCCT-7_8_0bulid/win64/vc14/bind;D:/OCCT780/OCCT-7_8_0/3rdparty/freeimage-3.17.0-vc14-64/bin;D:/OCCT780/OCCT-7_8_0/3rdparty/freetype-2.5.5-vc14-64/bin;D:/OCCT780/OCCT-7_8_0/3rdparty/ffmpeg-3.3.4-64/bin;D:\dev\vcpkg\packages\assimp_x64-windows\debug\bin;D:\dev\vcpkg\packages\jhasse-poly2tri_x64-windows\debug\bin;D:\dev\vcpkg\packages\minizip_x64-windows\debug\bin;D:\dev\vcpkg\packages\zlib_x64-windows\debug\bin;D:\dev\vcpkg\packages\kubazip_x64-windows\debug\bin;D:\dev\vcpkg\packages\pugixml_x64-windows\debug\bin;D:\dev\vcpkg\packages\boost-serialization_x64-windows\bin;D:\dev\vcpkg\packages\boost-program-options_x64-windows\bin;D:\dev\vcpkg\packages\boost-filesystem_x64-windows\debug\bin;D:\dev\vcpkg\packages\ccd_x64-windows\bin;D:\dev\vcpkg\packages\tbb_x64-windows\debug\bin;
+$(LocalDebuggerEnvironment)</LocalDebuggerEnvironment>
+    <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
+  </PropertyGroup>
+  <PropertyGroup>
+    <RESOURCE_FILE>OCCMFC.rc</RESOURCE_FILE>
+  </PropertyGroup>
+</Project>

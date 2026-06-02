@@ -1,0 +1,1307 @@
+
+//判断不同形状两个shape是否接触（离散数值计算，速度较慢）
+bool FindEdge2::Soild_Contact(TopoDS_Solid Soild1, TopoDS_Solid Soild2)
+{
+    //先判断两个模型是否接触，在去进行接触面的检测
+    BRepExtrema_DistShapeShape distTool(Soild1, Soild2);
+    distTool.Perform();
+    if (distTool.IsDone() && distTool.Value() < Precision::Confusion())
+    {
+        this->WriteStl(Soild1, "Soild1.stl");         //保存板件
+        this->WriteStl(Soild2, "Soild2.stl");         //保存管件
+
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+
+}
+
+
+//建立包围盒，对两个shape加速接触检测
+bool AreShapesTouching(const TopoDS_Shape& shape1, const TopoDS_Shape& shape2, double precision = 1e-6)
+{
+    // 第一步：检查包围盒
+    Bnd_Box box1, box2;
+    BRepBndLib::Add(shape1, box1);
+    BRepBndLib::Add(shape2, box2);
+
+    if (box1.IsOut(box2)) {
+        return false;  // 包围盒不相交，肯定不接触
+    }
+
+    // 第二步：精确距离检测
+    BRepExtrema_DistShapeShape distSS(shape1, shape2);
+    distSS.Perform();
+
+    if (!distSS.IsDone()) {
+        return false;
+    }
+
+    return (distSS.Value() < precision);
+}
+
+//判断是否是板件
+bool FindEdge2::IsPlatePiece(TopoDS_Solid Soild1)
+{
+    //遍历shape的所有面，通过Geom_Plane的数量判断这个shape是管还是平板(都是面和管相交的情况)
+    TopExp_Explorer faceExplorer(Soild1, TopAbs_FACE);
+    int Geom_Plane_Count = 0;
+    for (; faceExplorer.More(); faceExplorer.Next())
+    {
+        //获取面的拓扑面
+        TopoDS_Face face = TopoDS::Face(faceExplorer.Current());
+
+        //将拓扑面转换为几何面
+        Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
+        //std::cout << "Soild1_facetype:" << surface->DynamicType()->Name() << std::endl;
+        if (surface->DynamicType() == STANDARD_TYPE(Geom_Plane))Geom_Plane_Count++;
+
+    }
+
+    //如果一个shape含有多个Geom_Plane是板，只有两个是管(Soild1作为板件，Soild2作为管件)
+    if (Geom_Plane_Count <= 2)
+    {
+        return false;
+    }
+    else
+    {
+        return true;
+    }
+
+
+}
+
+//判断两个面是是否存在共享边
+bool FindEdge2::SharedEedge(TopoDS_Face face1, TopoDS_Face face2)
+{
+    TopTools_IndexedMapOfShape edgesOfFace1, edgesOfFace2;
+    TopExp::MapShapes(face1, TopAbs_EDGE, edgesOfFace1); // 提取face1的所有边
+    TopExp::MapShapes(face2, TopAbs_EDGE, edgesOfFace2); // 提取face2的所有边
+
+    //直接比较两个边的 TopoDS_Shape 是否共享同一底层拓扑对象
+    //for (int i = 1; i <= edgesOfFace1.Extent(); i++) {
+    //    const TopoDS_Edge& edge1 = TopoDS::Edge(edgesOfFace1(i));
+    //    for (int j = 1; j <= edgesOfFace2.Extent(); j++) {
+    //        const TopoDS_Edge& edge2 = TopoDS::Edge(edgesOfFace2(j));
+    //        if (edge1.TShape() == edge2.TShape()) {
+    //            // 找到共享边
+    //            return true;
+    //        }
+    //    }
+    //}
+
+    //几何比较（如顶点位置、曲线参数）
+    for (int i = 1; i <= edgesOfFace1.Extent(); i++) {
+        const TopoDS_Edge& edge1 = TopoDS::Edge(edgesOfFace1(i));
+        for (int j = 1; j <= edgesOfFace2.Extent(); j++) {
+            const TopoDS_Edge& edge2 = TopoDS::Edge(edgesOfFace2(j));
+            if (BRepTools::Compare(edge1, edge2)) {
+                // 几何上为同一边
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+//将一系列TopoDS_Face融合成一个compand复合体（并没有形成壳面，面依然独立存在）
+//如果面是连续的，可以融合成一个单一的连续面（去除共享边）
+TopoDS_Shape FindEdge2::CombineShape(std::vector<TopoDS_Face> Face)
+{
+    TopoDS_Shape fusedShape;
+    if (!Face.empty()) {
+        fusedShape = Face[0];
+        for (size_t i = 1; i < Face.size(); ++i) {
+            fusedShape = BRepAlgoAPI_Fuse(fusedShape, Face[i]).Shape();
+        }
+    }
+    return fusedShape;
+
+}
+
+//将一系列边界线融合为边界框
+TopoDS_Shape FindEdge2::MergeEdgesToCompound(const std::vector<TopoDS_Edge>& edges)
+{
+    BRep_Builder builder;
+    TopoDS_Compound result;
+    builder.MakeCompound(result);
+
+    for (const auto& edge : edges)
+    {
+        builder.Add(result, edge);
+    }
+
+    return result;
+}
+
+//遍历复合体面的所有边线,消除共享边并排序
+std::vector<TopoDS_Edge> FindEdge2::EdgeExplorer(TopoDS_Shape Face)
+{
+    std::vector<TopoDS_Edge> Edge1;
+    std::vector<TopoDS_Edge> Edge2;
+
+    //遍历面的所有边
+    TopExp_Explorer edgeExplorer(Face, TopAbs_EDGE);
+    int edgeCount = 0;
+    for (; edgeExplorer.More(); edgeExplorer.Next())
+    {
+        edgeCount++;
+        TopoDS_Edge edge = TopoDS::Edge(edgeExplorer.Current());
+
+        //std::cout << "\nEdge " << edgeCount << ":" << std::endl;
+        //Json::Value Jedge;
+        //PrintEdgeInfo(edge, Jedge);
+
+        Edge1.push_back(edge);
+        //Edge2.push_back(edge);
+
+
+    }
+    std::cout << "Edge1.size():" << Edge1.size() << std::endl;
+
+    //-----------------------------------------------------------------------------------------
+    //去除共享边
+    std::cout << "***去除共享边*************************" << std::endl;
+    std::vector<int> edge_num;
+    for (int i = 0; i < Edge1.size() - 1; i++)
+    {
+        for (int j = i + 1; j < Edge1.size(); j++)
+        {
+            if (BRepTools::Compare(Edge1[i], Edge1[j]))
+            {
+                edge_num.push_back(i);
+                edge_num.push_back(j);
+            }
+        }
+    }
+
+    //打印共享边索引
+    //for (int i = 0; i < edge_num.size(); i++)
+    //{
+    //    std::cout << "共享边索引\t" << edge_num[i] << "\t" << edge_num[(i+1)] << std::endl;
+    //    i++;
+    //}
+
+    //在Edge2存入不是共享边的边线
+    for (int i = 0; i < Edge1.size(); i++)
+    {
+        int Is = false;
+        for (int j = 0; j < edge_num.size(); j++)
+        {
+            if (i == edge_num[j])   Is = true;
+        }
+
+        if (!Is)
+            Edge2.push_back(Edge1[i]);
+    }
+
+    //std::cout << "Edge1.size():" << Edge1.size() << std::endl;
+    //std::cout << "Edge2.size():" << Edge2.size() << std::endl;
+
+
+    //-----------------------------------------------------------------------------------------
+    //将组合体面的边线进行排序
+    std::cout << "***组合体面的边线进行排序*************" << std::endl;
+    std::vector<TopoDS_Edge> Edge3;
+    Edge3.push_back(Edge2[0]);
+    Edge2.erase(Edge2.begin());
+    //std::cout << "Edge2.size():" << Edge2.size() << std::endl;
+    //std::cout << "Edge3.size():" << Edge3.size() << std::endl;
+
+    //遍历，将Edge2中的元素按先后顺序放入Edge3中
+    while (Edge2.size())
+    {
+        for (int j = 0; j < Edge2.size(); j++)
+        {
+            //寻找和管件Soild2相接触的线
+            BRepExtrema_DistShapeShape distTool(Edge2[j], Edge3[Edge3.size() - 1]);
+            distTool.Perform();
+            if (distTool.IsDone() && distTool.Value() < 1.0)
+            {
+                Edge3.push_back(Edge2[j]);
+                Edge2.erase(Edge2.begin() + j);
+                break;
+            }
+        }
+    }
+    std::cout << "Edge3.size():" << Edge3.size() << std::endl;
+    std::cout << "***组合体面的边线排序完成*************" << std::endl;
+    //std::cout << "Edge2.size():" << Edge2.size() << std::endl;
+    //std::cout << "Edge3.size():" << Edge3.size() << std::endl;
+
+    //打印有顺序的边线集合
+    //for (int i = 0; i < Edge3.size(); i++)
+    //{
+    //    std::cout << "\nEdge3 " << i << ":" << std::endl;
+    //    Json::Value Jedge;
+    //    PrintEdgeInfo(Edge3[i], Jedge);
+    //}
+
+    return Edge3;
+
+
+}
+
+//计算一条直线焊缝的姿态信息(焊缝、距离、板件法线参考面、管件柱面)
+void FindEdge2::LinePointPosture(const TopoDS_Edge& edge, int dis, TopoDS_Face Face1, TopoDS_Face Face2)
+{
+    //定义焊缝数据
+    WeldSeam weldseam;
+    //***********************************************************************************
+    //提取焊缝边线信息
+    std::cout << "***提取焊缝边线信息*******************" << std::endl;
+
+
+    Standard_Real first, last;
+    Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, first, last);
+
+    std::cout << "  Edge - Parametric range: [" << first << ", " << last << "]" << std::endl;
+    std::cout << "  Length: " << GCPnts_AbscissaPoint::Length(BRepAdaptor_Curve(edge)) << std::endl;
+    std::cout << "  Curve type: " << curve->DynamicType()->Name() << std::endl;
+    weldseam.Length = GCPnts_AbscissaPoint::Length(BRepAdaptor_Curve(edge));
+    weldseam.CurveType = curve->DynamicType()->Name();
+
+    // 获取顶点
+    TopoDS_Vertex v1, v2;
+    TopExp::Vertices(edge, v1, v2);
+    gp_Pnt P1;
+    gp_Pnt P2;
+
+
+    if (!v1.IsNull()) {
+        gp_Pnt p1 = BRep_Tool::Pnt(v1);
+        std::cout << "  Start vertex: (" << p1.X() << ", " << p1.Y() << ", " << p1.Z() << ")" << std::endl;
+        P1 = p1;
+
+        //记录焊缝数据
+        weldseam.StartPoint.X = p1.X();
+        weldseam.StartPoint.Y = p1.Y();
+        weldseam.StartPoint.Z = p1.Z();
+
+    }
+    if (!v2.IsNull()) {
+        gp_Pnt p2 = BRep_Tool::Pnt(v2);
+        std::cout << "  End vertex: (" << p2.X() << ", " << p2.Y() << ", " << p2.Z() << ")" << std::endl;
+        P2 = p2;
+
+        //记录焊缝数据
+        weldseam.EndPoint.X = p2.X();
+        weldseam.EndPoint.Y = p2.Y();
+        weldseam.EndPoint.Z = p2.Z();
+
+    }
+
+
+    //***************************************************************************************************************
+    std::cout << "***提取管件柱面信息*******************" << std::endl;
+    Handle(Geom_Surface) surface = BRep_Tool::Surface(Face2);
+    // cylinder: 转换为圆柱面类型
+    Handle(Geom_CylindricalSurface) cylinder = Handle(Geom_CylindricalSurface)::DownCast(surface);
+
+    // cyl: 圆柱面几何描述
+    gp_Cylinder cyl = cylinder->Cylinder();
+
+    // loc: 圆柱轴线上的参考点--圆柱轴线经过的点
+    gp_Pnt loc = cyl.Location();
+
+    // axis: 圆柱轴线方向
+    gp_Dir axis = cyl.Axis().Direction();
+
+    // radius: 圆柱半径
+    double radius = cyl.Radius();
+
+    //打印在管件中，距离焊缝最近的面的信息
+    std::cout << "  Location: (" << loc.X() << ", " << loc.Y() << ", " << loc.Z() << ")" << std::endl;
+    std::cout << "  Axis: (" << axis.X() << ", " << axis.Y() << ", " << axis.Z() << ")" << std::endl;
+    std::cout << "  Radius: " << radius << std::endl;
+
+
+    //***************************************************************************************************************
+    //----------------------获取的板件的法线参考面---------------------------------
+
+    //用法线pln.Axis().Direction()构建一个向量
+    gp_Vec vec2;
+    Handle(Geom_Surface) surface1 = BRep_Tool::Surface(Face1);
+    if (surface1->IsKind(STANDARD_TYPE(Geom_Plane)))
+    {
+        // plane: 转换为平面类型
+        Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(surface1);
+
+        // pln: 平面几何描述
+        gp_Pln pln = plane->Pln();
+
+        // axis: 平面法向量
+        gp_Dir axis = pln.Axis().Direction();
+
+        gp_Vec vec(axis.X(), axis.Y(), axis.Z());
+
+        vec2 = vec;
+    }
+
+    std::cout << "  平面法向量vec2: ("
+        << vec2.X() << ", "
+        << vec2.Y() << ", "
+        << vec2.Z() << ")" << std::endl;
+
+    //----------------------先构造圆柱轴线的直线方程---------------------------
+    // 构造直线
+    GC_MakeLine makeLine(cyl.Location(), cyl.Axis().Direction());
+    const Handle(Geom_Line)& line = makeLine.Value(); // 转换为 Geom_Line 对象
+
+    //***************************************************************************************************************
+    //通过焊缝的起始点和终止点，计算焊缝的姿态信息，并赋值
+
+    gp_Vec vec;
+    //------------------将edge的起始点投影到轴线的参数方程上----------------------
+    //计算投影
+    GeomAPI_ProjectPointOnCurve projector1(P1, line);
+    gp_Pnt projectedPoint;
+    if (projector1.NbPoints() > 0) {
+        projectedPoint = projector1.NearestPoint();
+        std::cout << "  LineProPoint: ("
+            << projectedPoint.X() << ", "
+            << projectedPoint.Y() << ", "
+            << projectedPoint.Z() << ")" << std::endl;
+    }
+
+    //计算焊缝姿态信息并进行赋值(start)
+    vec = this->PointPosture(P1, projectedPoint, radius, vec2);
+
+    //记录焊缝数据
+    weldseam.StartPoint.x = vec.X();
+    weldseam.StartPoint.y = vec.Y();
+    weldseam.StartPoint.z = vec.Z();
+
+    //------------------将edge的终止点投影到轴线的参数方程上----------------------
+    //计算投影
+    GeomAPI_ProjectPointOnCurve projector2(P2, line);
+    gp_Pnt projectedPoint1;
+    if (projector2.NbPoints() > 0) {
+        projectedPoint1 = projector2.NearestPoint();
+        std::cout << "  LineProPoint: ("
+            << projectedPoint1.X() << ", "
+            << projectedPoint1.Y() << ", "
+            << projectedPoint1.Z() << ")" << std::endl;
+    }
+
+    //计算焊缝姿态信息并进行赋值(start)
+    vec = this->PointPosture(P2, projectedPoint1, radius, vec2);
+
+    //记录焊缝数据
+    weldseam.EndPoint.x = vec.X();
+    weldseam.EndPoint.y = vec.Y();
+    weldseam.EndPoint.z = vec.Z();
+
+    this->WeldSeam_vec.push_back(weldseam);
+
+
+}
+
+//计算一条圆弧线焊缝的姿态信息
+void FindEdge2::CirclePointPosture(const TopoDS_Edge& edge, int dis, TopoDS_Face Face1, TopoDS_Face Face2)
+{
+    //定义焊缝数据
+    WeldSeam weldseam;
+    //***********************************************************************************
+    //提取焊缝边线信息
+    std::cout << "***提取焊缝边线信息*******************" << std::endl;
+
+    Standard_Real first, last;
+    Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, first, last);
+
+    std::cout << "  Edge - Parametric range: [" << first << ", " << last << "]" << std::endl;
+    std::cout << "  Length: " << GCPnts_AbscissaPoint::Length(BRepAdaptor_Curve(edge)) << std::endl;
+    std::cout << "  Curve type: " << curve->DynamicType()->Name() << std::endl;
+    weldseam.Length = GCPnts_AbscissaPoint::Length(BRepAdaptor_Curve(edge));
+    weldseam.CurveType = curve->DynamicType()->Name();
+
+    // 获取顶点
+    TopoDS_Vertex v1, v2;
+    TopExp::Vertices(edge, v1, v2);
+    gp_Pnt P1;
+    gp_Pnt P2;
+
+
+    if (!v1.IsNull()) {
+        gp_Pnt p1 = BRep_Tool::Pnt(v1);
+        std::cout << "  Start vertex: (" << p1.X() << ", " << p1.Y() << ", " << p1.Z() << ")" << std::endl;
+        P1 = p1;
+
+        //记录焊缝数据
+        weldseam.StartPoint.X = p1.X();
+        weldseam.StartPoint.Y = p1.Y();
+        weldseam.StartPoint.Z = p1.Z();
+
+    }
+    if (!v2.IsNull()) {
+        gp_Pnt p2 = BRep_Tool::Pnt(v2);
+        std::cout << "  End vertex: (" << p2.X() << ", " << p2.Y() << ", " << p2.Z() << ")" << std::endl;
+        P2 = p2;
+
+        //记录焊缝数据
+        weldseam.EndPoint.X = p2.X();
+        weldseam.EndPoint.Y = p2.Y();
+        weldseam.EndPoint.Z = p2.Z();
+
+    }
+
+
+    // 如果是圆或圆弧
+    if (curve->DynamicType() == STANDARD_TYPE(Geom_Circle)) {
+        Handle(Geom_Circle) circle = Handle(Geom_Circle)::DownCast(curve);
+        gp_Pnt center = circle->Location();
+        double radius = circle->Radius();
+        std::cout << "    Center: (" << center.X() << ", " << center.Y() << ", " << center.Z() << ")" << std::endl;
+        std::cout << "    Radius: " << radius << std::endl;
+
+        //记录焊缝数据
+        weldseam.Center.X = center.X();
+        weldseam.Center.Y = center.Y();
+        weldseam.Center.Z = center.Z();
+
+        weldseam.Radius = radius;
+    }
+
+
+    //***************************************************************************************************************
+    std::cout << "***提取管件柱面信息*******************" << std::endl;
+    Handle(Geom_Surface) surface = BRep_Tool::Surface(Face2);
+
+    // torus: 转换为圆环面类型
+    Handle(Geom_ToroidalSurface) torus = Handle(Geom_ToroidalSurface)::DownCast(surface);
+
+    // tor: 圆环面几何描述
+    gp_Torus tor = torus->Torus();
+
+    // loc: 圆环中心
+    gp_Pnt loc = tor.Location();
+
+    // axis: 圆环轴线方向
+    gp_Dir axis = tor.Axis().Direction();
+
+    // majorRadius: 主半径(环中心到管中心)
+    double majorRadius = tor.MajorRadius();
+
+    // minorRadius: 次半径(管的半径)
+    double minorRadius = tor.MinorRadius();
+
+    std::cout << "Type: Torus" << std::endl;
+    std::cout << "Location: (" << loc.X() << ", " << loc.Y() << ", " << loc.Z() << ")" << std::endl;
+    std::cout << "Axis: (" << axis.X() << ", " << axis.Y() << ", " << axis.Z() << ")" << std::endl;
+    std::cout << "Major radius: " << majorRadius << std::endl;
+    std::cout << "Minor radius: " << minorRadius << std::endl;
+
+
+    //***************************************************************************************************************
+    //----------------------获取的板件的法线参考面---------------------------------
+
+    //用法线pln.Axis().Direction()构建一个向量
+    gp_Vec vec2;
+    Handle(Geom_Surface) surface1 = BRep_Tool::Surface(Face1);
+    if (surface1->IsKind(STANDARD_TYPE(Geom_Plane)))
+    {
+        // plane: 转换为平面类型
+        Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(surface1);
+
+        // pln: 平面几何描述
+        gp_Pln pln = plane->Pln();
+
+        // axis: 平面法向量
+        gp_Dir axis = pln.Axis().Direction();
+
+        gp_Vec vec(axis.X(), axis.Y(), axis.Z());
+
+        vec2 = vec;
+    }
+
+    std::cout << "  平面法向量vec2: ("
+        << vec2.X() << ", "
+        << vec2.Y() << ", "
+        << vec2.Z() << ")" << std::endl;
+
+    //----------------------先构造圆柱轴线的直线方程---------------------------
+    // 构造直线
+    //GC_MakeLine makeLine(cyl.Location(), cyl.Axis().Direction());
+    //const Handle(Geom_Line)& line = makeLine.Value(); // 转换为 Geom_Line 对象
+
+    //线构造圆环线
+    gp_Circ circle(gp_Ax2(loc, axis), majorRadius);    // 构造圆
+
+
+    Handle(Geom_Circle) geomCircle = GC_MakeCircle(circle).Value();  // 转换为 Geom_Circle
+
+    //***************************************************************************************************************
+    //通过焊缝的起始点和终止点，计算焊缝的姿态信息，并赋值
+
+    gp_Vec vec;
+    //------------------将edge的起始点投影到轴线的参数方程上----------------------
+    //计算投影
+    GeomAPI_ProjectPointOnCurve projector1(P1, geomCircle);
+    gp_Pnt projectedPoint;
+    if (projector1.NbPoints() > 0) {
+        projectedPoint = projector1.NearestPoint();
+        std::cout << "  LineProPoint: ("
+            << projectedPoint.X() << ", "
+            << projectedPoint.Y() << ", "
+            << projectedPoint.Z() << ")" << std::endl;
+    }
+
+    //计算焊缝姿态信息并进行赋值(start)
+    vec = this->PointPosture(P1, projectedPoint, minorRadius, vec2);
+
+    //记录焊缝数据
+    weldseam.StartPoint.x = vec.X();
+    weldseam.StartPoint.y = vec.Y();
+    weldseam.StartPoint.z = vec.Z();
+
+    //------------------将edge的起始点投影到轴线的参数方程上----------------------
+    //计算投影
+    GeomAPI_ProjectPointOnCurve projector2(P2, geomCircle);
+    gp_Pnt projectedPoint1;
+    if (projector2.NbPoints() > 0) {
+        projectedPoint1 = projector2.NearestPoint();
+        std::cout << "  LineProPoint: ("
+            << projectedPoint1.X() << ", "
+            << projectedPoint1.Y() << ", "
+            << projectedPoint1.Z() << ")" << std::endl;
+    }
+
+    //计算焊缝姿态信息并进行赋值(start)
+    vec = this->PointPosture(P2, projectedPoint1, minorRadius, vec2);
+
+    //记录焊缝数据
+    weldseam.EndPoint.x = vec.X();
+    weldseam.EndPoint.y = vec.Y();
+    weldseam.EndPoint.z = vec.Z();
+
+    this->WeldSeam_vec.push_back(weldseam);
+
+
+}
+
+//计算一条顶端直线焊缝的姿态信息
+void FindEdge2::TopedgePointPosture(const TopoDS_Edge& edge, int dis, TopoDS_Face Face1, TopoDS_Face Face2)
+{
+    //定义焊缝数据
+    WeldSeam weldseam;
+    //***********************************************************************************
+    //提取焊缝边线信息
+    std::cout << "***提取焊缝边线信息*******************" << std::endl;
+
+    Standard_Real first, last;
+    Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, first, last);
+
+    std::cout << "  Edge - Parametric range: [" << first << ", " << last << "]" << std::endl;
+    std::cout << "  Length: " << GCPnts_AbscissaPoint::Length(BRepAdaptor_Curve(edge)) << std::endl;
+    std::cout << "  Curve type: " << curve->DynamicType()->Name() << std::endl;
+    weldseam.Length = GCPnts_AbscissaPoint::Length(BRepAdaptor_Curve(edge));
+    weldseam.CurveType = curve->DynamicType()->Name();
+
+    // 获取顶点
+    TopoDS_Vertex v1, v2;
+    TopExp::Vertices(edge, v1, v2);
+    gp_Pnt P1;
+    gp_Pnt P2;
+
+
+    if (!v1.IsNull()) {
+        gp_Pnt p1 = BRep_Tool::Pnt(v1);
+        std::cout << "  Start vertex: (" << p1.X() << ", " << p1.Y() << ", " << p1.Z() << ")" << std::endl;
+        P1 = p1;
+
+        //记录焊缝数据
+        weldseam.StartPoint.X = p1.X();
+        weldseam.StartPoint.Y = p1.Y();
+        weldseam.StartPoint.Z = p1.Z();
+
+    }
+    if (!v2.IsNull()) {
+        gp_Pnt p2 = BRep_Tool::Pnt(v2);
+        std::cout << "  End vertex: (" << p2.X() << ", " << p2.Y() << ", " << p2.Z() << ")" << std::endl;
+        P2 = p2;
+
+        //记录焊缝数据
+        weldseam.EndPoint.X = p2.X();
+        weldseam.EndPoint.Y = p2.Y();
+        weldseam.EndPoint.Z = p2.Z();
+
+    }
+
+
+    // 如果是圆或圆弧
+    if (curve->DynamicType() == STANDARD_TYPE(Geom_Circle)) {
+        Handle(Geom_Circle) circle = Handle(Geom_Circle)::DownCast(curve);
+        gp_Pnt center = circle->Location();
+        double radius = circle->Radius();
+        std::cout << "    Center: (" << center.X() << ", " << center.Y() << ", " << center.Z() << ")" << std::endl;
+        std::cout << "    Radius: " << radius << std::endl;
+
+        //记录焊缝数据
+        weldseam.Center.X = center.X();
+        weldseam.Center.Y = center.Y();
+        weldseam.Center.Z = center.Z();
+
+        weldseam.Radius = radius;
+    }
+
+
+    //***************************************************************************************************************
+    std::cout << "***提取管件柱面信息*******************" << std::endl;
+    Handle(Geom_Surface) surface = BRep_Tool::Surface(Face2);
+    // cylinder: 转换为圆柱面类型
+    Handle(Geom_CylindricalSurface) cylinder = Handle(Geom_CylindricalSurface)::DownCast(surface);
+
+    // cyl: 圆柱面几何描述
+    gp_Cylinder cyl = cylinder->Cylinder();
+
+    // loc: 圆柱轴线上的参考点
+    gp_Pnt loc = cyl.Location();
+
+    // axis: 圆柱轴线方向
+    gp_Dir axis = cyl.Axis().Direction();
+
+    // radius: 圆柱半径
+    double radius = cyl.Radius();
+
+    //打印在管件中，距离焊缝最近的面的信息
+    std::cout << "  Location: (" << loc.X() << ", " << loc.Y() << ", " << loc.Z() << ")" << std::endl;
+    std::cout << "  Axis: (" << axis.X() << ", " << axis.Y() << ", " << axis.Z() << ")" << std::endl;
+    std::cout << "  Radius: " << radius << std::endl;
+
+
+    //***************************************************************************************************************
+    //----------------------获取的板件的法线参考面---------------------------------
+
+    //用法线pln.Axis().Direction()构建一个向量
+    gp_Vec vec2;
+    Handle(Geom_Surface) surface1 = BRep_Tool::Surface(Face1);
+    if (surface1->IsKind(STANDARD_TYPE(Geom_Plane)))
+    {
+        // plane: 转换为平面类型
+        Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(surface1);
+
+        // pln: 平面几何描述
+        gp_Pln pln = plane->Pln();
+
+        // axis: 平面法向量
+        gp_Dir axis = pln.Axis().Direction();
+
+        gp_Vec vec(axis.X(), axis.Y(), axis.Z());
+
+        vec2 = vec;
+    }
+
+    std::cout << "  平面法向量vec2: ("
+        << vec2.X() << ", "
+        << vec2.Y() << ", "
+        << vec2.Z() << ")" << std::endl;
+
+    //----------------------先构造圆柱轴线的直线方程---------------------------
+   // 构造直线
+    GC_MakeLine makeLine(cyl.Location(), cyl.Axis().Direction());
+    const Handle(Geom_Line)& line = makeLine.Value(); // 转换为 Geom_Line 对象
+
+    //***************************************************************************************************************
+    //通过焊缝的起始点和终止点，计算焊缝的姿态信息，并赋值
+
+    //------------------计算轴线上投影点-----------------------------
+    GeomAPI_ProjectPointOnCurve projector1(P1, line);
+    gp_Pnt projectedPoint;
+    if (projector1.NbPoints() > 0) {
+        projectedPoint = projector1.NearestPoint();
+        std::cout << "  LineProPoint: ("
+            << projectedPoint.X() << ", "
+            << projectedPoint.Y() << ", "
+            << projectedPoint.Z() << ")" << std::endl;
+    }
+
+
+    //-------------------------计算板件接触面的质心--------------------
+    // 初始化几何属性结构
+    GProp_GProps props;
+
+    // 计算面的几何属性（使用面面积计算重心）
+    BRepGProp::SurfaceProperties(Face1, props);
+
+    // 获取重心坐标
+    gp_Pnt center = props.CentreOfMass();
+
+    // 输出坐标
+    Standard_Real x = center.X();
+    Standard_Real y = center.Y();
+    Standard_Real z = center.Z();
+
+    //--------------------构建投影点到质心向量----------------------------
+    gp_Vec vec1(center.X() - projectedPoint.X(), center.Y() - projectedPoint.Y(), center.Z() - projectedPoint.Z());
+    // 单位化向量
+    if (vec1.Magnitude() > 0.0) {
+        vec1.Normalize();
+        // 现在vec是单位向量
+    }
+
+    //---------------------构建轴线方向向量-----------------------------------------------
+    gp_Vec vec3(axis.X(), axis.Y(), axis.Z());
+
+    //------------------------通过向量判断轴线外方向(大于90度，为轴外法线)-----------------
+    if (this->AngleBetweenVectors(vec1, vec3) < 90)
+    {
+        std::cout << "  vec1, vec3:" << this->AngleBetweenVectors(vec1, vec3) << std::endl;
+        vec3 = -vec3;
+    }
+    std::cout << "  vec1, vec3:" << this->AngleBetweenVectors(vec1, vec3) << std::endl;
+
+
+    //------------------------------通过向量判断参考面的法向（大于90度）--------------------
+    if (this->AngleBetweenVectors(vec1, vec2) > 90)
+    {
+        std::cout << "  vec1, vec2:" << this->AngleBetweenVectors(vec1, vec2) << std::endl;
+        vec2 = -vec2;
+    }
+    std::cout << "  vec1, vec2:" << this->AngleBetweenVectors(vec1, vec2) << std::endl;
+
+    //----------------------------------计算焊枪姿态-----------------------------------------
+    gp_Vec vec4 = vec2 + vec3;
+    // 单位化向量
+    if (vec4.Magnitude() > 0.0) {
+        vec4.Normalize();
+        // 现在vec是单位向量
+    }
+
+    std::cout << "  vec4: ("
+        << vec4.X() << ", "
+        << vec4.Y() << ", "
+        << vec4.Z() << ")" << std::endl;
+
+
+
+    //记录焊缝数据
+    weldseam.StartPoint.x = vec4.X();
+    weldseam.StartPoint.y = vec4.Y();
+    weldseam.StartPoint.z = vec4.Z();
+
+
+
+    //记录焊缝数据
+    weldseam.EndPoint.x = vec4.X();
+    weldseam.EndPoint.y = vec4.Y();
+    weldseam.EndPoint.z = vec4.Z();
+
+    this->WeldSeam_vec.push_back(weldseam);
+
+
+}
+
+//计算焊缝上一点的焊缝姿态信息(只适用于板件和管件的焊接件：焊缝点、在轴线上投影点、管半径、板件参考平面法向量（方向不定）)
+gp_Vec FindEdge2::PointPosture(const gp_Pnt& P1, gp_Pnt& projectedPoint, double& radius, gp_Vec& vec2)
+{
+    //***************************************************************************************************************
+    //计算角平分线
+
+    std::cout << "  P: ("
+        << P1.X() << ", "
+        << P1.Y() << ", "
+        << P1.Z() << ")" << std::endl;
+
+    std::cout << "  projectedPoint: ("
+        << projectedPoint.X() << ", "
+        << projectedPoint.Y() << ", "
+        << projectedPoint.Z() << ")" << std::endl;
+
+
+
+    //-----------------连接两点，构建投影点法向量，并找到投影点-----------------
+    // 创建一个向量
+    gp_Vec vec1(P1.X() - projectedPoint.X(), P1.Y() - projectedPoint.Y(), P1.Z() - projectedPoint.Z());
+
+    // 单位化向量
+    if (vec1.Magnitude() > 0.0) {
+        vec1.Normalize();
+        // 现在vec是单位向量
+    }
+    std::cout << "  轴线到边线向量vec1: ("
+        << vec1.X() << ", "
+        << vec1.Y() << ", "
+        << vec1.Z() << ")" << std::endl;
+
+    gp_Pnt point(projectedPoint.X() + vec1.X() * radius, projectedPoint.Y() + vec1.Y() * radius, projectedPoint.Z() + vec1.Z() * radius);
+    std::cout << "  FaceProPoint: ("
+        << point.X() << ", "
+        << point.Y() << ", "
+        << point.Z() << ")" << std::endl;
+
+
+
+
+    //------------------------------vec2和vec1角度小于90度的向量--------------------
+    if (this->AngleBetweenVectors(vec1, vec2) > 90)
+    {
+        std::cout << "  this->AngleBetweenVectors:" << this->AngleBetweenVectors(vec1, vec2) << std::endl;
+        vec2 = -vec2;
+    }
+    std::cout << "  this->AngleBetweenVectors:" << this->AngleBetweenVectors(vec1, vec2) << std::endl;
+
+
+    //-------------------------计算投影点处的切向量------------------------------------------
+    //此处不用计算，投影点的法向量和平面的法线的角平分线即为焊枪姿态
+
+
+    //---------------------------计算焊枪姿态 ----------------------------------------------
+    gp_Vec vec3 = vec1 + vec2;
+    // 单位化向量
+    if (vec3.Magnitude() > 0.0) {
+        vec3.Normalize();
+        // 现在vec是单位向量
+    }
+
+    std::cout << "  vec3: ("
+        << vec3.X() << ", "
+        << vec3.Y() << ", "
+        << vec3.Z() << ")" << std::endl;
+
+    return vec3;
+
+}
+//
+////判断在一个shape中，是否存在一个face和这个edge很近且平行---原始程序
+//在一个shape中，寻找距离edge最近且小于confu的面、且edge和这个face平行的面。
+void FindEdge2::FindFaceWithMinAvgDistanceToEdgeEnds(const TopoDS_Shape& _shape, const TopoDS_Edge& edge, TopoDS_Face& face, double confu)
+{
+    // 获取edge的起点和终点
+    Standard_Real first, last;
+    Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, first, last);
+    gp_Pnt startPoint = curve->Value(first);
+    gp_Pnt endPoint = curve->Value(last);
+
+    // 将几何点转换为拓扑顶点
+    TopoDS_Vertex startVertex = BRepBuilderAPI_MakeVertex(startPoint);
+    TopoDS_Vertex endVertex = BRepBuilderAPI_MakeVertex(endPoint);
+
+
+
+    std::vector<TopoDS_Face> face_vec;
+    // 遍历shape中的所有面,寻找距离edge的起始点和终止点在face面上的投影距离都小于conf的face
+    for (TopExp_Explorer exp(_shape, TopAbs_FACE); exp.More(); exp.Next())
+    {
+        const TopoDS_Face& currentFace = TopoDS::Face(exp.Current());
+
+        //将一个拓扑面转换为一个几何面
+        Handle(Geom_Surface) surface = BRep_Tool::Surface(currentFace);     // 你的几何面（无限延伸）
+
+        GeomAPI_ProjectPointOnSurf projector_s(startPoint, surface);
+        GeomAPI_ProjectPointOnSurf projector_e(endPoint, surface);
+
+        Standard_Real distance1 = 1000;
+        Standard_Real distance2 = 1000;
+
+        if (projector_s.NbPoints() > 0 && projector_e.NbPoints() > 0)
+        {
+            distance1 = projector_s.LowerDistance();
+            distance2 = projector_e.LowerDistance();
+        }
+
+        if (distance1 < confu && distance2 < confu)
+        {
+            //std::cout << "distance1:" << distance1 << "\t distance1:" << distance1 << std::endl;
+            //std::cout << "distance2:" << distance2 << "\t distance2:" << distance2 << std::endl;
+            face_vec.push_back(currentFace);
+        }
+
+
+    }
+
+    if (face_vec.empty())
+    {
+        return;
+    }
+
+
+    //*****************寻找满足条件中，距离最近的的那个面**************************
+    // 初始化最小距离
+    Standard_Real minAvgDistance = RealLast();
+    for (int i = 0; i < face_vec.size(); i++)
+    {
+        // 计算起点到面的距离
+        BRepExtrema_DistShapeShape distStart;
+        distStart.LoadS1(edge);
+        distStart.LoadS2(face_vec[i]);
+        distStart.Perform();
+        if (!distStart.IsDone()) return;
+
+        if ((distStart.Value() < minAvgDistance) && (distStart.Value() < confu))
+        {
+            face = face_vec[i];
+            minAvgDistance = distStart.Value();
+        }
+    }
+
+}
+
+
+
+
+
+
+//上面程序添加一些防止奔溃的判断
+//void FindEdge2::FindFaceWithMinAvgDistanceToEdgeEnds(const TopoDS_Shape& _shape, const TopoDS_Edge& edge, TopoDS_Face& face, double confu)
+//{
+//    // 【BUG 修复 1】一开始就把输出面清空，防止野值
+//    face.Nullify();
+//
+//    // 【BUG 修复 2】判断曲线是否为空，防止坏边崩溃
+//    Standard_Real first, last;
+//    Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, first, last);
+//    if (curve.IsNull())
+//        return;
+//
+//    // 获取边的起点和终点
+//    gp_Pnt startPoint = curve->Value(first);
+//    gp_Pnt endPoint = curve->Value(last);
+//
+//    std::vector<TopoDS_Face> face_vec;
+//
+//    // 遍历目标形状所有面
+//    for (TopExp_Explorer exp(_shape, TopAbs_FACE); exp.More(); exp.Next())
+//    {
+//        const TopoDS_Face& currentFace = TopoDS::Face(exp.Current());
+//
+//        // 获取面的几何曲面
+//        Handle(Geom_Surface) surface = BRep_Tool::Surface(currentFace);
+//        if (surface.IsNull())
+//            continue;
+//
+//        // 点投影到曲面
+//        GeomAPI_ProjectPointOnSurf projector_s(startPoint, surface);
+//        GeomAPI_ProjectPointOnSurf projector_e(endPoint, surface);
+//
+//        Standard_Real distance1 = 1000.0;
+//        Standard_Real distance2 = 1000.0;
+//
+//        if (projector_s.NbPoints() > 0 && projector_e.NbPoints() > 0)
+//        {
+//            distance1 = projector_s.LowerDistance();
+//            distance2 = projector_e.LowerDistance();
+//        }
+//
+//        // 筛选：两个端点投影距离都小于公差
+//        if (distance1 < confu && distance2 < confu)
+//        {
+//            // 【BUG 修复 3】增加判断：点是否在【实际有限面】上
+//            BRepClass3d_SolidClassifier classifier;
+//            classifier.Load(currentFace);
+//
+//            classifier.Perform(startPoint, confu);
+//            if (classifier.State() != TopAbs_IN && classifier.State() != TopAbs_ON)
+//                continue;
+//
+//            classifier.Perform(endPoint, confu);
+//            if (classifier.State() != TopAbs_IN && classifier.State() != TopAbs_ON)
+//                continue;
+//
+//            face_vec.push_back(currentFace);
+//        }
+//    }
+//
+//    // 无满足条件的面，直接返回（此时 face 已清空，安全）
+//    if (face_vec.empty())
+//        return;
+//
+//    // ***************** 从候选面中找距离最近的面 **************************
+//    Standard_Real minAvgDistance = RealLast();
+//
+//    for (int i = 0; i < face_vec.size(); i++)
+//    {
+//        BRepExtrema_DistShapeShape distStart;
+//        distStart.LoadS1(edge);
+//        distStart.LoadS2(face_vec[i]);
+//        distStart.Perform();
+//
+//        // 【BUG 修复 4】计算失败 → 跳过当前面，不退出整个函数
+//        if (!distStart.IsDone())
+//            continue;
+//
+//        Standard_Real curDist = distStart.Value();
+//
+//        // 【BUG 修复 5】去掉错误的 confu 限制，只保留最小距离比较
+//        if (curDist < minAvgDistance)
+//        {
+//            face = face_vec[i];
+//            minAvgDistance = curDist;
+//        }
+//    }
+//}
+//
+
+
+
+
+
+//将一个edge沿着face法向投影到face上
+TopoDS_Shape FindEdge2::ProjectorEdge2Face(const TopoDS_Edge& edge, const TopoDS_Face& face)
+{
+
+    TopoDS_Shape projectedShape;
+    //--------------------------------获取平面的法向方向-------------------------
+    // 1. 获取面的几何曲面
+    Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
+
+    std::cout << "----1--------------" << std::endl;
+
+    // 2.平面类型
+    if (surface->IsKind(STANDARD_TYPE(Geom_Plane)))
+    {
+        // plane: 转换为平面类型
+        Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(surface);
+
+        // pln: 平面几何描述
+        gp_Pln pln = plane->Pln();
+
+        // axis: 平面法向量
+        gp_Dir direction = pln.Axis().Direction();
+
+        direction = direction.Reversed();
+
+        std::cout << "----2--------------" << std::endl;
+
+
+        // 创建投影
+        BRepProj_Projection projector(edge, face, direction);
+
+
+        // 获取投影结果（可能有多段结果）
+        if (projector.IsDone()) {
+            // 取第一个投影结果（如果有多个，需要遍历）
+            projectedShape = projector.Shape();
+
+            std::cout << "----3--------------" << std::endl;
+
+            // 检查是否是Edge
+            if (projectedShape.ShapeType() == TopAbs_EDGE) {
+                projectedShape = TopoDS::Edge(projectedShape);
+                // 使用 projectedEdge ...
+
+            }
+        }
+    }
+
+    return projectedShape;
+
+
+}
+
+#include <TopoDS_Shape.hxx>
+#include <TopAbs_ShapeEnum.hxx>
+
+//打印输出shape是一个什么类型的数据
+void CheckShapeType(const TopoDS_Shape& shape) {
+    switch (shape.ShapeType()) {
+    case TopAbs_VERTEX:
+        std::cout << "This is a Vertex." << std::endl;
+        break;
+    case TopAbs_EDGE:
+        std::cout << "This is an Edge." << std::endl;
+        break;
+    case TopAbs_FACE:
+        std::cout << "This is a Face." << std::endl;
+        break;
+    case TopAbs_WIRE:
+        std::cout << "This is a Wire." << std::endl;
+        break;
+    case TopAbs_SHELL:
+        std::cout << "This is a Shell." << std::endl;
+        break;
+    case TopAbs_SOLID:
+        std::cout << "This is a Solid." << std::endl;
+        break;
+    case TopAbs_COMPOUND:
+        std::cout << "This is a Compound." << std::endl;
+        break;
+    case TopAbs_COMPSOLID:
+        std::cout << "This is a CompSolid." << std::endl;
+        break;
+    default:
+        std::cout << "Unknown shape type." << std::endl;
+    }
+}
+
+//判断在一个shape中，寻找和这个edge贴合的接触底面
+//原始edge和face的距离小于confu，且edge投影后和face的布尔相交不为空和点集（是一个edge类型）（存在问题）
+void FindEdge2::FindFaceWithMinAvgDistanceToEdgeEnds_1(const TopoDS_Shape& _shape, const TopoDS_Edge& edge, TopoDS_Face& face, double confu)
+{
+    std::vector<TopoDS_Face> face_vec;
+    // 遍历shape中的所有面,寻找距离edge的起始点和终止点在face面上的投影距离都小于conf的face
+    for (TopExp_Explorer exp(_shape, TopAbs_FACE); exp.More(); exp.Next())
+    {
+        const TopoDS_Face& currentFace = TopoDS::Face(exp.Current());
+
+        //先计算判断投影前edge和face的最小距离
+
+        // 计算起点到面的距离
+        BRepExtrema_DistShapeShape distStart;
+        distStart.LoadS1(edge);
+        distStart.LoadS2(currentFace);
+        distStart.Perform();
+        if (!distStart.IsDone()) return;
+
+        if (distStart.Value() < confu)
+        {
+            face = currentFace;
+        }
+
+        std::cout << "---------------------" << std::endl;
+
+        if (edge.IsNull() || currentFace.IsNull()) {
+            std::cerr << "Error: Input shape is null!" << std::endl;
+            return;
+        }
+
+        //计算判断投影后的project_edge和face的布尔相交的类型
+        //如果结果为空或者点集，则这不是一条焊缝
+        TopoDS_Shape project_shape = this->ProjectorEdge2Face(edge, currentFace);
+
+        CheckShapeType(project_shape);
+
+    }
+
+}
+
+
+//计算两个向量之间的夹角（返回角度值）
+double FindEdge2::AngleBetweenVectors(const gp_Vec& u, const gp_Vec& v)
+{
+    double dot = u.Dot(v);                    // 点积
+    double mag_u = u.Magnitude();             // 向量u的模
+    double mag_v = v.Magnitude();             // 向量v的模
+
+    //直接返回，由于浮点数计算，可能会到底超出[-1, 1],计算错误，返回-nan(ind)
+    double result = dot / (mag_u * mag_v);
+    if (result > 1.0)result = 1.0;
+    if (result < -1.0) result = -1.0;
+
+
+    return acos(result) * (180.0 / M_PI);       // 反余弦计算夹角（弧度）return radians * (180.0 / M_PI);
+}
+
+
+//计算两个向量之间的夹角（返回角度值）
+// double FindEdge2::CosBetweenVectors(const gp_Vec& u, const gp_Vec& v)
+// {
+//     double dot = u.Dot(v);                    // 点积
+//     double mag_u = u.Magnitude();             // 向量u的模
+//     double mag_v = v.Magnitude();             // 向量v的模
+//     return (dot / (mag_u * mag_v)) * (180.0 / M_PI);       // 反余弦计算夹角（弧度）return radians * (180.0 / M_PI);
+// }
+
+
+
+//对模型进行焊缝提取和姿态计算
+void FindEdge2::WeldSeamCompute()
+{
+    //----------------------------遍历所有 Soild，将所有shape放入一个vector中---------------------------------------------------
+    std::vector<TopoDS_Solid> Soild;
+    TopExp_Explorer solidExplorer(this->shape, TopAbs_SOLID);
+    while (solidExplorer.More())
+    {
+        TopoDS_Solid solid = TopoDS::Solid(solidExplorer.Current());
+        // 处理当前 Solid...
+
+        //将遍历的所有实体放入vector中
+        Soild.push_back(solid);
+
+        solidExplorer.Next();
+    }
+    std::cout << "Soild.size():" << Soild.size() << std::endl;
+
+
+
+    //-------------------------遍历模型中所有shape,进行接触检测，判断那两个模型相互接触，返回模型几何-----------------------------
+    //用于存放两个相互接触对应的shape
+    std::vector<TopoDS_Solid> Soild1;
+    std::vector<TopoDS_Solid> Soild2;
+
+    int num = 0;
+
+    // 遍历每个实体，如果两个实体相互接触，就放入容器----    //修改接触容差，
+    for (int i = 0; i < Soild.size() - 1; i++)
+    {
+        for (int j = i + 1; j < Soild.size(); j++)
+        {
+            // ===================== 容差改为 1mm =====================
+            if (AreShapesTouching(Soild[i], Soild[j], 10.0))
+            {
+                Soild1.push_back(Soild[i]);
+                Soild2.push_back(Soild[j]);
+
+                std::cout << "找到一组相互接触的零件: " << num << std::endl;
+                num++;
+            }
+        }
+    }
+
+
+
+    //for (int i = 0; i < Soild.size() - 1; i++)
+    //{
+    //    for (int j = i + 1; j < Soild.size(); j++)
+    //    {
+    //        //if (this->Soild_Contact(Soild[i], Soild[j]))
+    //        if (AreShapesTouching(Soild[i], Soild[j], Precision::Confusion()))
+    //        {
+    //            Soild1.push_back(Soild[i]);
+    //            Soild2.push_back(Soild[j]);
+
+    //            // 处理当前 Solid...
+    //            //std::string STPNumber = "./out2/STL1_" + std::to_string(num) + "-1.stl";                                                                    
+    //            //this->WriteStl(Soild[i], STPNumber);                      
+    //            //                                                                                          
+    //            //STPNumber = "./out2/STL1_" + std::to_string(num) + "-2.stl";
+    //            //this->WriteStl(Soild[j], STPNumber);
+
+    //            std::cout << "找到一组相互接触的零件:" << num << std::endl;
+
+    //            num++;
+
+    //        }
+    //    }
+
+
+    //}
+    ////
+    ////
+
+
+
+    // 【新增】最后判断：有没有找到接触对
+    if (num == 0)
+    {
+        std::cout << "========================================" << std::endl;
+        std::cout << "       没有找到任何相互接触的零件！" << std::endl;
+        std::cout << "========================================" << std::endl;
+    }
+    else
+    {
+        std::cout << "========================================" << std::endl;
+        std::cout << "       总共找到 " << num << " 组相互接触的零件" << std::endl;
+        std::cout << "========================================" << std::endl;
+    }
+
+
+
+
+
+    //-----------------------------------------------------焊缝类型判断-----------------------------------------------------------
+
+    //遍历每一相互接触的模型
+    for (int i = 0; i < Soild1.size(); i++)
+    {
+        //this->S_contact(Soild1[i], Soild2[i]);
+        //this->S_contact(Soild2[i], Soild1[i]);
+
+        this->S_contact(Soild1[i], Soild2[i]);
+        this->S_contact(Soild2[i], Soild1[i]);
+    }
+
+}
