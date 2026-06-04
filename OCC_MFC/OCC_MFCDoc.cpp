@@ -2374,35 +2374,37 @@ void WeldExtractor::MergeAndAlignBrokenSeams()
 }
 
 // ==========================================
-// 1. 升级版：二维拓扑面内裁剪器（带死刑复核，彻底解决 4444 漏焊与穿孔）
+// ValidateAndClipSeamsByFaces - 高密度分段切割器（步长2mm，动态打断长线穿越孔洞）
 // ==========================================
 void WeldExtractor::ValidateAndClipSeamsByFaces(const TopoDS_Shape& globalShape)
 {
-    std::vector<WeldSeam> validatedSeams;
+    std::vector<WeldSeam> clippedSeams;
+    const double SAMPLE_STEP = 2.0;
 
     for (const auto& seam : WeldSeams)
     {
         gp_Pnt s(seam.StartPoint.X, seam.StartPoint.Y, seam.StartPoint.Z);
         gp_Pnt e(seam.EndPoint.X, seam.EndPoint.Y, seam.EndPoint.Z);
+        gp_Vec dirVec(s, e);
+        double totalLength = dirVec.Magnitude();
+        if (totalLength < 1e-3) continue;
 
-        // 3点动态步长探针（起点附近、中点、终点附近）
-        std::array<double, 3> t_samples = { 0.2, 0.5, 0.8 };
-        bool isAnyPointInHole = false;
+        gp_Dir dir(dirVec);
+        bool inMetalSegment = false;
+        gp_Pnt segmentStart;
 
-        for (double t : t_samples)
+        for (double d = 0.0; d <= totalLength; d += SAMPLE_STEP)
         {
-            gp_Pnt samplePt(
-                s.X() + (e.X() - s.X()) * t,
-                s.Y() + (e.Y() - s.Y()) * t,
-                s.Z() + (e.Z() - s.Z()) * t
-            );
+            if (d + SAMPLE_STEP > totalLength) d = totalLength;
 
-            // 寻找离采样点最近的物理 Face（OCCT 7.8 适配：用顶点封装 gp_Pnt）
-            TopoDS_Face closestFace;
-            double minDistance = std::numeric_limits<double>::max();
-            BRepBuilderAPI_MakeVertex mkProbe(samplePt);
+            gp_Pnt currentSamplePt = s.Translated(gp_Vec(dir) * d);
+
+            BRepBuilderAPI_MakeVertex mkProbe(currentSamplePt);
             if (!mkProbe.IsDone()) continue;
             TopoDS_Shape probeShape = mkProbe.Shape();
+
+            TopoDS_Face closestFace;
+            double minDistance = std::numeric_limits<double>::max();
 
             TopExp_Explorer expF(globalShape, TopAbs_FACE);
             for (; expF.More(); expF.Next())
@@ -2412,84 +2414,85 @@ void WeldExtractor::ValidateAndClipSeamsByFaces(const TopoDS_Shape& globalShape)
                 if (extrema.IsDone() && extrema.NbSolution() > 0)
                 {
                     double dist = extrema.Value();
-                    if (dist < minDistance)
+                    if (dist < minDistance) { minDistance = dist; closestFace = face; }
+                }
+            }
+
+            bool isValidPoint = false;
+            if (!closestFace.IsNull() && minDistance <= 2.0)
+            {
+                double uParam = 0.0, vParam = 0.0;
+                BRepExtrema_DistShapeShape extremaProj(probeShape, closestFace);
+                if (extremaProj.IsDone() && extremaProj.NbSolution() > 0)
+                {
+                    if (extremaProj.SupportTypeShape2(1) == BRepExtrema_IsInFace)
+                        extremaProj.ParOnFaceS2(1, uParam, vParam);
+                    else if (extremaProj.SupportTypeShape1(1) == BRepExtrema_IsInFace)
+                        extremaProj.ParOnFaceS1(1, uParam, vParam);
+                    else
                     {
-                        minDistance = dist;
-                        closestFace = face;
+                        BRepAdaptor_Surface adaptSurf(closestFace);
+                        Extrema_ExtPS extPS(currentSamplePt, adaptSurf, Precision::Confusion(), Precision::Confusion());
+                        if (extPS.IsDone() && extPS.NbExt() > 0)
+                            extPS.Point(1).Parameter(uParam, vParam);
                     }
                 }
-            }
 
-            // 如果探针点距离任何面都极远（> 2mm），说明它本身就在空气中
-            if (closestFace.IsNull() || minDistance > 2.0)
-            {
-                isAnyPointInHole = true;
-                break;
-            }
+                gp_Pnt2d uvParam(uParam, vParam);
+                BRepTopAdaptor_FClass2d classifier(closestFace, Precision::Confusion());
+                TopAbs_State state = classifier.Perform(uvParam);
 
-            // 反求 Face 上的二维 UV 坐标 (适配 OCCT 7.8.0)
-            double uParam = 0.0, vParam = 0.0;
-            BRepExtrema_DistShapeShape extremaProj(probeShape, closestFace);
-            if (extremaProj.IsDone() && extremaProj.NbSolution() > 0)
-            {
-                if (extremaProj.SupportTypeShape2(1) == BRepExtrema_IsInFace)
+                if (state != TopAbs_OUT)
                 {
-                    extremaProj.ParOnFaceS2(1, uParam, vParam);
-                }
-                else if (extremaProj.SupportTypeShape1(1) == BRepExtrema_IsInFace)
-                {
-                    extremaProj.ParOnFaceS1(1, uParam, vParam);
+                    isValidPoint = true;
                 }
                 else
                 {
-                    BRepAdaptor_Surface adaptSurf(closestFace);
-                    Extrema_ExtPS extPS(samplePt, adaptSurf, Precision::Confusion(), Precision::Confusion());
-                    if (extPS.IsDone() && extPS.NbExt() > 0)
+                    BRepExtrema_DistShapeShape extBorder(probeShape, closestFace);
+                    if (extBorder.IsDone() && extBorder.NbSolution() > 0)
                     {
-                        extPS.Point(1).Parameter(uParam, vParam);
+                        if (extBorder.Value() <= 1.5)
+                            isValidPoint = true;
                     }
+                }
+            }
+
+            // 状态机：金属区/空气区转换 → 动态截断
+            if (isValidPoint)
+            {
+                if (!inMetalSegment)
+                {
+                    segmentStart = currentSamplePt;
+                    inMetalSegment = true;
                 }
             }
             else
             {
-                continue;
-            }
-
-            // 调用面内环拓扑分类器
-            gp_Pnt2d uvParam(uParam, vParam);
-            BRepTopAdaptor_FClass2d classifier(closestFace, Precision::Confusion());
-            TopAbs_State state = classifier.Perform(uvParam);
-
-            if (state == TopAbs_OUT)
-            {
-                // 【核心死刑复核】：防止边缘数值漂移误杀正常焊缝
-                Standard_Real distToFaceBorder = std::numeric_limits<double>::max();
-                BRepExtrema_DistShapeShape extBorder(probeShape, closestFace);
-                if (extBorder.IsDone() && extBorder.NbSolution() > 0)
+                if (inMetalSegment)
                 {
-                    distToFaceBorder = extBorder.Value();
-                }
-
-                // 只有离开物理实体面边界大于 1.5mm 的，才确认为真正的空气穿孔
-                if (distToFaceBorder > 1.5)
-                {
-                    isAnyPointInHole = true;
-                    break;
+                    if (segmentStart.Distance(currentSamplePt) > 5.0)
+                    {
+                        WeldSeam subSeam = seam;
+                        subSeam.StartPoint.X = segmentStart.X(); subSeam.StartPoint.Y = segmentStart.Y(); subSeam.StartPoint.Z = segmentStart.Z();
+                        subSeam.EndPoint.X = currentSamplePt.X(); subSeam.EndPoint.Y = currentSamplePt.Y(); subSeam.EndPoint.Z = currentSamplePt.Z();
+                        clippedSeams.push_back(subSeam);
+                    }
+                    inMetalSegment = false;
                 }
             }
+            if (d >= totalLength) break;
         }
 
-        if (!isAnyPointInHole)
+        if (inMetalSegment && segmentStart.Distance(e) > 5.0)
         {
-            validatedSeams.push_back(seam);
+            WeldSeam subSeam = seam;
+            subSeam.StartPoint.X = segmentStart.X(); subSeam.StartPoint.Y = segmentStart.Y(); subSeam.StartPoint.Z = segmentStart.Z();
+            subSeam.EndPoint.X = e.X(); subSeam.EndPoint.Y = e.Y(); subSeam.EndPoint.Z = e.Z();
+            clippedSeams.push_back(subSeam);
         }
     }
-
-    WeldSeams = std::move(validatedSeams);
-}
-
-// ==============================
-// CheckIfFlatContact - 判断两面是否为平贴接触（过滤立板端头）
+    WeldSeams = std::move(clippedSeams);
+}// CheckIfFlatContact - 判断两面是否为平贴接触（过滤立板端头）
 // 工艺原理：两面法线几乎平行（<10°或>170°）则为平贴安装面，不焊接
 // ==============================
 bool WeldExtractor::CheckIfFlatContact(const TopoDS_Edge& edge, const TopoDS_Face& face1, const TopoDS_Face& face2)
@@ -2573,13 +2576,12 @@ bool WeldExtractor::IsConvexEdge(const TopoDS_Edge& edge, const TopoDS_Face& fac
 }
 
 // ==========================================
-// 2. 升级版：工艺特征洗白过滤器（基于中点反查物理边，干掉 5555 双胞胎阳角）
+// FilterByWeldingProcess - 空间厚度极值判别法（迈步1mm探测，根除双胞胎阳角）
 // ==========================================
 void WeldExtractor::FilterByWeldingProcess(const TopoDS_Shape& globalShape)
 {
     std::vector<WeldSeam> filteredSeams;
 
-    // 建立物理 Edge 和 Face 的邻接映射
     TopTools_IndexedDataMapOfShapeListOfShape edgeFaceMap;
     TopExp::MapShapesAndAncestors(globalShape, TopAbs_EDGE, TopAbs_FACE, edgeFaceMap);
 
@@ -2588,16 +2590,16 @@ void WeldExtractor::FilterByWeldingProcess(const TopoDS_Shape& globalShape)
         gp_Pnt pStart(seam.StartPoint.X, seam.StartPoint.Y, seam.StartPoint.Z);
         gp_Pnt pEnd(seam.EndPoint.X, seam.EndPoint.Y, seam.EndPoint.Z);
 
-        // 核心改动：用焊缝中点作为探针，去原始模型中反查最近的物理 Edge
-        gp_Pnt midPt((pStart.X() + pEnd.X()) * 0.5,
-                     (pStart.Y() + pEnd.Y()) * 0.5,
-                     (pStart.Z() + pEnd.Z()) * 0.5);
+        gp_Pnt midPt((pStart.X() + pEnd.X()) / 2.0,
+                     (pStart.Y() + pEnd.Y()) / 2.0,
+                     (pStart.Z() + pEnd.Z()) / 2.0);
 
-        TopoDS_Edge currentEdge;
-        double minDistance = std::numeric_limits<double>::max();
         BRepBuilderAPI_MakeVertex mkMid(midPt);
         if (!mkMid.IsDone()) continue;
         TopoDS_Shape midShape = mkMid.Shape();
+
+        TopoDS_Edge currentEdge;
+        double minDistance = std::numeric_limits<double>::max();
 
         TopExp_Explorer expE(globalShape, TopAbs_EDGE);
         for (; expE.More(); expE.Next())
@@ -2607,19 +2609,11 @@ void WeldExtractor::FilterByWeldingProcess(const TopoDS_Shape& globalShape)
             if (extrema.IsDone() && extrema.NbSolution() > 0)
             {
                 double dist = extrema.Value();
-                if (dist < minDistance)
-                {
-                    minDistance = dist;
-                    currentEdge = e;
-                }
+                if (dist < minDistance) { minDistance = dist; currentEdge = e; }
             }
         }
 
-        // 如果距离最近的物理边依然超过 2.0mm，说明此交线不合理，直接过滤
-        if (currentEdge.IsNull() || minDistance > 2.0) {
-            continue;
-        }
-
+        if (currentEdge.IsNull() || minDistance > 2.0) continue;
         if (!edgeFaceMap.Contains(currentEdge)) continue;
         const TopTools_ListOfShape& faceList = edgeFaceMap.FindFromKey(currentEdge);
         if (faceList.Extent() < 2) continue;
@@ -2627,14 +2621,43 @@ void WeldExtractor::FilterByWeldingProcess(const TopoDS_Shape& globalShape)
         TopoDS_Face face1 = TopoDS::Face(faceList.First());
         TopoDS_Face face2 = TopoDS::Face(faceList.Last());
 
-        // 【第一关】平贴接触过滤（干掉立板端头 70mm、30mm 假线）
-        if (CheckIfFlatContact(currentEdge, face1, face2)) {
-            continue;
-        }
+        if (CheckIfFlatContact(currentEdge, face1, face2)) continue;
 
-        // 【第二关】凸边/阳角过滤（彻底根除 5555 的双胞胎平行阳角假缝）
-        if (IsConvexEdge(currentEdge, face1, face2)) {
-            continue;
+        // 计算两面法线合成方向
+        double f, l;
+        Handle(Geom_Curve) curve = BRep_Tool::Curve(currentEdge, f, l);
+        if (curve.IsNull()) continue;
+        double midParam = (f + l) / 2.0;
+
+        double u1, v1, u2, v2;
+        BRep_Tool::CurveOnSurface(currentEdge, face1, f, l)->Value(midParam).Coord(u1, v1);
+        BRepAdaptor_Surface surf1(face1);
+        BRepLProp_SLProps props1(surf1, u1, v1, 1, Precision::Confusion());
+        gp_Dir norm1 = props1.Normal();
+        if (face1.Orientation() == TopAbs_REVERSED) norm1.Reverse();
+
+        BRep_Tool::CurveOnSurface(currentEdge, face2, f, l)->Value(midParam).Coord(u2, v2);
+        BRepAdaptor_Surface surf2(face2);
+        BRepLProp_SLProps props2(surf2, u2, v2, 1, Precision::Confusion());
+        gp_Dir norm2 = props2.Normal();
+        if (face2.Orientation() == TopAbs_REVERSED) norm2.Reverse();
+
+        gp_Vec combineNorm = gp_Vec(norm1) + gp_Vec(norm2);
+        if (combineNorm.Magnitude() < 1e-3) continue;
+        combineNorm.Normalize();
+
+        // 顺着合成外法线向外迈出1mm
+        gp_Pnt airTestPoint = midPt.Translated(combineNorm * 1.0);
+
+        BRepBuilderAPI_MakeVertex mkAir(airTestPoint);
+        if (!mkAir.IsDone()) continue;
+        TopoDS_Shape airShape = mkAir.Shape();
+
+        BRepExtrema_DistShapeShape extAir(airShape, globalShape);
+        if (extAir.IsDone() && extAir.NbSolution() > 0)
+        {
+            if (extAir.Value() > 0.7)
+                continue;
         }
 
         filteredSeams.push_back(seam);
@@ -2642,7 +2665,6 @@ void WeldExtractor::FilterByWeldingProcess(const TopoDS_Shape& globalShape)
 
     WeldSeams = std::move(filteredSeams);
 
-    // 重新编号
     for (size_t i = 0; i < WeldSeams.size(); i++) {
         WeldSeams[i].Id = (int)i + 1;
     }
