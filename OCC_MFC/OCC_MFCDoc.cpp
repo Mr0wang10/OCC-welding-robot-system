@@ -1786,6 +1786,7 @@ void WeldExtractor::ExtractInitialWelds()
                             try
                             {
                                 BRepAlgoAPI_Section section(smallFace, bigFace, Standard_False);
+                                section.SetFuzzyValue(0.2);  // 开启模糊布尔，容忍 0.2mm 装配间隙
                                 section.ComputePCurveOn1(Standard_True);
                                 section.Approximation(Standard_True);
                                 section.Build();
@@ -2373,76 +2374,85 @@ void WeldExtractor::MergeAndAlignBrokenSeams()
 }
 
 // ==============================
-// ValidateAndClipSeamsByFaces - 二维拓扑分类裁剪器
-// 工艺目的：利用 BRepTopAdaptor_FClass2d 判断线段中点是否悬空在孔洞内
-// 遇 TopAbs_OUT 则拦截（根除圆孔越界空焊）
+// ValidateAndClipSeamsByFaces - 3点动态探针孔洞检测
+// 利用 BRepExtrema_DistShapeShape 定位最近面 + BRepTopAdaptor_FClass2d 二维拓扑分类
+// 取 0.2/0.5/0.8 三处采样点，任意一点在孔内（TopAbs_OUT）则拦截
 // ==============================
 void WeldExtractor::ValidateAndClipSeamsByFaces(const TopoDS_Shape& globalShape)
 {
     std::vector<WeldSeam> validatedSeams;
 
-    TopTools_IndexedDataMapOfShapeListOfShape edgeFaceMap;
-    TopExp::MapShapesAndAncestors(globalShape, TopAbs_EDGE, TopAbs_FACE, edgeFaceMap);
-
     for (const auto& seam : WeldSeams)
     {
         gp_Pnt s(seam.StartPoint.X, seam.StartPoint.Y, seam.StartPoint.Z);
         gp_Pnt e(seam.EndPoint.X, seam.EndPoint.Y, seam.EndPoint.Z);
-        gp_Pnt midPt((s.X() + e.X()) * 0.5, (s.Y() + e.Y()) * 0.5, (s.Z() + e.Z()) * 0.5);
 
-        // 反查该焊缝对应的全局 Edge
-        TopoDS_Edge currentEdge;
-        TopExp_Explorer expE(globalShape, TopAbs_EDGE);
-        for (; expE.More(); expE.Next())
+        // 3 点动态步长探针：起点附近、中点、终点附近
+        std::array<double, 3> t_samples = { 0.2, 0.5, 0.8 };
+        bool isAnyPointInHole = false;
+
+        for (double t : t_samples)
         {
-            TopoDS_Edge edge = TopoDS::Edge(expE.Current());
-            double f = 0.0, l = 0.0;
-            Handle(Geom_Curve) c = BRep_Tool::Curve(edge, f, l);
-            if (!c.IsNull())
+            gp_Pnt samplePt(
+                s.X() + (e.X() - s.X()) * t,
+                s.Y() + (e.Y() - s.Y()) * t,
+                s.Z() + (e.Z() - s.Z()) * t
+            );
+
+            // 寻找全局实体中离采样探针点最近的物理 Face
+            TopoDS_Face closestFace;
+            double minDistance = std::numeric_limits<double>::max();
+
+            TopExp_Explorer expF(globalShape, TopAbs_FACE);
+            for (; expF.More(); expF.Next())
             {
-                if (c->Value(f).Distance(s) < 2.0 || c->Value(l).Distance(s) < 2.0)
+                TopoDS_Face face = TopoDS::Face(expF.Current());
+                BRepExtrema_DistShapeShape extrema(samplePt, face);
+                if (extrema.IsDone() && extrema.NbSolution() > 0)
                 {
-                    currentEdge = edge;
-                    break;
+                    double dist = extrema.Value();
+                    if (dist < minDistance)
+                    {
+                        minDistance = dist;
+                        closestFace = face;
+                    }
                 }
+            }
+
+            // 探针点距离任何面都 > 2mm → 悬空在空气中
+            if (closestFace.IsNull() || minDistance > 2.0)
+            {
+                isAnyPointInHole = true;
+                break;
+            }
+
+            // 将采样点投影到最近面上，反求 UV 参数
+            double uParam = 0.0, vParam = 0.0;
+            BRepExtrema_DistShapeShape extremaProj(samplePt, closestFace);
+            if (extremaProj.IsDone() && extremaProj.NbSolution() > 0)
+            {
+                extremaProj.ParOnFaceS1(1, uParam, vParam);
+            }
+            else
+            {
+                continue;
+            }
+
+            // 二维拓扑环分类器盘问 UV 是否在面拓扑外（圆孔空气区）
+            gp_Pnt2d uvParam(uParam, vParam);
+            BRepTopAdaptor_FClass2d classifier(closestFace, Precision::Confusion());
+            TopAbs_State state = classifier.Perform(uvParam);
+
+            if (state == TopAbs_OUT)
+            {
+                isAnyPointInHole = true;
+                break;
             }
         }
 
-        if (currentEdge.IsNull() || !edgeFaceMap.Contains(currentEdge))
-        {
+        // 只有所有探针点都在真实金属面上才保留
+        if (!isAnyPointInHole)
             validatedSeams.push_back(seam);
-            continue;
-        }
-
-        const TopTools_ListOfShape& faces = edgeFaceMap.FindFromKey(currentEdge);
-        if (faces.Extent() == 0)
-        {
-            validatedSeams.push_back(seam);
-            continue;
-        }
-
-        TopoDS_Face face = TopoDS::Face(faces.First());
-
-        BRepAdaptor_Surface surf(face);
-        double uFirst = 0.0, uLast = 0.0;
-        Handle(Geom2d_Curve) c2d = BRep_Tool::CurveOnSurface(currentEdge, face, uFirst, uLast);
-
-        if (c2d.IsNull())
-        {
-            validatedSeams.push_back(seam);
-            continue;
-        }
-
-        gp_Pnt2d uvParam = c2d->Value((uFirst + uLast) * 0.5);
-
-        BRepTopAdaptor_FClass2d classifier(face, Precision::Confusion());
-        TopAbs_State state = classifier.Perform(uvParam);
-
-        // TopAbs_OUT 说明线段中点悬空在孔洞/开槽内 → 工艺拦截
-        if (state == TopAbs_OUT)
-            continue;
-
-        validatedSeams.push_back(seam);
     }
 
     WeldSeams = std::move(validatedSeams);
