@@ -95,6 +95,13 @@ private:
     void RemoveDuplicateSeams();
     bool AreSeamsDuplicate(const WeldSeam& a, const WeldSeam& b, double tol);
 
+    // ----- 步骤6: 后处理拓扑清洗 -----
+    void MergeAndAlignBrokenSeams();                    // 碎段长直线熔接
+    void ValidateAndClipSeamsByFaces(const TopoDS_Shape& globalShape); // 孔洞穿透过滤
+    void FilterByWeldingProcess(const TopoDS_Shape& globalShape);      // 工艺特征洗白
+    static bool CheckIfFlatContact(const TopoDS_Edge& edge, const TopoDS_Face& face1, const TopoDS_Face& face2);
+    static bool IsConvexEdge(const TopoDS_Edge& edge, const TopoDS_Face& face1, const TopoDS_Face& face2);
+
     // ----- 辅助工具 -----
     double WeldEdgeLength(const TopoDS_Edge& edge);
     gp_Vec ComputeFaceNormal(const TopoDS_Face& face);

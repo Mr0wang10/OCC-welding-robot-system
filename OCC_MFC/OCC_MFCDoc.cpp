@@ -90,6 +90,10 @@
 #include <GeomAdaptor_Curve.hxx>
 #include <Geom_TrimmedCurve.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepLProp_SLProps.hxx>
+#include <BRepTopAdaptor_FClass2d.hxx>
+#include <ElCLib.hxx>
+#include <Geom2d_Curve.hxx>
 #include <BRepLib.hxx>
 #include <TopoDS_Wire.hxx>
 #include <TopTools_ListIteratorOfListOfShape.hxx>
@@ -1452,6 +1456,14 @@ void WeldExtractor::Compute()
         DetectTruncations();
         DetectInternalSections();
         RemoveDuplicateSeams();
+
+        // ===== 步骤6: 后处理拓扑清洗过滤器 =====
+        if (!WeldSeams.empty() && !inputShape.IsNull())
+        {
+            MergeAndAlignBrokenSeams();
+            ValidateAndClipSeamsByFaces(inputShape);
+            FilterByWeldingProcess(inputShape);
+        }
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -2290,6 +2302,298 @@ void WeldExtractor::RemoveDuplicateSeams()
 double WeldExtractor::WeldEdgeLength(const TopoDS_Edge& edge)
 {
     return WeldEdgeLen(edge);
+}
+
+// ==============================
+// MergeAndAlignBrokenSeams - 碎段长直线熔接器
+// 工艺目的：将被立板切碎、宽度错位的共线碎段拉直融合成贯通长线
+// 关键逻辑：空间距离 + 投影重叠度判定
+// ==============================
+void WeldExtractor::MergeAndAlignBrokenSeams()
+{
+    std::vector<WeldSeam> mergedList;
+    const double DIST_THRESHOLD = 6.0;    // 轴间距容差(mm)
+    const double ANGLE_THRESHOLD = 0.05;  // 平行度弧度容差(~3度)
+    const double GAP_THRESHOLD = 8.0;     // 投影间隙容差(mm)
+
+    for (const auto& current : WeldSeams)
+    {
+        bool isMerged = false;
+        gp_Pnt s1(current.StartPoint.X, current.StartPoint.Y, current.StartPoint.Z);
+        gp_Pnt e1(current.EndPoint.X, current.EndPoint.Y, current.EndPoint.Z);
+        gp_Vec v1(s1, e1);
+        if (v1.Magnitude() < 1e-3) continue;
+        gp_Lin lin1(s1, gp_Dir(v1));
+
+        for (auto& target : mergedList)
+        {
+            gp_Pnt s2(target.StartPoint.X, target.StartPoint.Y, target.StartPoint.Z);
+            gp_Pnt e2(target.EndPoint.X, target.EndPoint.Y, target.EndPoint.Z);
+            gp_Vec v2(s2, e2);
+            if (v2.Magnitude() < 1e-3) continue;
+
+            if (v1.IsParallel(v2, ANGLE_THRESHOLD))
+            {
+                double d = lin1.Distance(s2);
+                if (d < DIST_THRESHOLD)
+                {
+                    double p_s1 = ElCLib::Parameter(lin1, s1);
+                    double p_e1 = ElCLib::Parameter(lin1, e1);
+                    double p_s2 = ElCLib::Parameter(lin1, s2);
+                    double p_e2 = ElCLib::Parameter(lin1, e2);
+
+                    double min1 = std::min(p_s1, p_e1), max1 = std::max(p_s1, p_e1);
+                    double min2 = std::min(p_s2, p_e2), max2 = std::max(p_s2, p_e2);
+
+                    if (!(max1 < min2 - GAP_THRESHOLD || max2 < min1 - GAP_THRESHOLD))
+                    {
+                        double finalMin = std::min(min1, min2);
+                        double finalMax = std::max(max1, max2);
+
+                        gp_Pnt newStart = ElCLib::Value(finalMin, lin1);
+                        gp_Pnt newEnd = ElCLib::Value(finalMax, lin1);
+
+                        target.StartPoint.X = newStart.X();
+                        target.StartPoint.Y = newStart.Y();
+                        target.StartPoint.Z = newStart.Z();
+                        target.EndPoint.X = newEnd.X();
+                        target.EndPoint.Y = newEnd.Y();
+                        target.EndPoint.Z = newEnd.Z();
+
+                        isMerged = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (!isMerged)
+            mergedList.push_back(current);
+    }
+    WeldSeams = std::move(mergedList);
+}
+
+// ==============================
+// ValidateAndClipSeamsByFaces - 二维拓扑分类裁剪器
+// 工艺目的：利用 BRepTopAdaptor_FClass2d 判断线段中点是否悬空在孔洞内
+// 遇 TopAbs_OUT 则拦截（根除圆孔越界空焊）
+// ==============================
+void WeldExtractor::ValidateAndClipSeamsByFaces(const TopoDS_Shape& globalShape)
+{
+    std::vector<WeldSeam> validatedSeams;
+
+    TopTools_IndexedDataMapOfShapeListOfShape edgeFaceMap;
+    TopExp::MapShapesAndAncestors(globalShape, TopAbs_EDGE, TopAbs_FACE, edgeFaceMap);
+
+    for (const auto& seam : WeldSeams)
+    {
+        gp_Pnt s(seam.StartPoint.X, seam.StartPoint.Y, seam.StartPoint.Z);
+        gp_Pnt e(seam.EndPoint.X, seam.EndPoint.Y, seam.EndPoint.Z);
+        gp_Pnt midPt((s.X() + e.X()) * 0.5, (s.Y() + e.Y()) * 0.5, (s.Z() + e.Z()) * 0.5);
+
+        // 反查该焊缝对应的全局 Edge
+        TopoDS_Edge currentEdge;
+        TopExp_Explorer expE(globalShape, TopAbs_EDGE);
+        for (; expE.More(); expE.Next())
+        {
+            TopoDS_Edge edge = TopoDS::Edge(expE.Current());
+            double f = 0.0, l = 0.0;
+            Handle(Geom_Curve) c = BRep_Tool::Curve(edge, f, l);
+            if (!c.IsNull())
+            {
+                if (c->Value(f).Distance(s) < 2.0 || c->Value(l).Distance(s) < 2.0)
+                {
+                    currentEdge = edge;
+                    break;
+                }
+            }
+        }
+
+        if (currentEdge.IsNull() || !edgeFaceMap.Contains(currentEdge))
+        {
+            validatedSeams.push_back(seam);
+            continue;
+        }
+
+        const TopTools_ListOfShape& faces = edgeFaceMap.FindFromKey(currentEdge);
+        if (faces.Extent() == 0)
+        {
+            validatedSeams.push_back(seam);
+            continue;
+        }
+
+        TopoDS_Face face = TopoDS::Face(faces.First());
+
+        BRepAdaptor_Surface surf(face);
+        double uFirst = 0.0, uLast = 0.0;
+        Handle(Geom2d_Curve) c2d = BRep_Tool::CurveOnSurface(currentEdge, face, uFirst, uLast);
+
+        if (c2d.IsNull())
+        {
+            validatedSeams.push_back(seam);
+            continue;
+        }
+
+        gp_Pnt2d uvParam = c2d->Value((uFirst + uLast) * 0.5);
+
+        BRepTopAdaptor_FClass2d classifier(face, Precision::Confusion());
+        TopAbs_State state = classifier.Perform(uvParam);
+
+        // TopAbs_OUT 说明线段中点悬空在孔洞/开槽内 → 工艺拦截
+        if (state == TopAbs_OUT)
+            continue;
+
+        validatedSeams.push_back(seam);
+    }
+
+    WeldSeams = std::move(validatedSeams);
+}
+
+// ==============================
+// CheckIfFlatContact - 判断两面是否为平贴接触（过滤立板端头）
+// 工艺原理：两面法线几乎平行（<10°或>170°）则为平贴安装面，不焊接
+// ==============================
+bool WeldExtractor::CheckIfFlatContact(const TopoDS_Edge& edge, const TopoDS_Face& face1, const TopoDS_Face& face2)
+{
+    double f = 0.0, l = 0.0;
+    Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, f, l);
+    if (curve.IsNull()) return true;
+
+    double midParam = (f + l) * 0.5;
+
+    BRepAdaptor_Surface surf1(face1);
+    double u1 = 0.0, v1 = 0.0;
+    Handle(Geom2d_Curve) c2d1 = BRep_Tool::CurveOnSurface(edge, face1, f, l);
+    if (c2d1.IsNull()) return true;
+    c2d1->Value(midParam).Coord(u1, v1);
+    BRepLProp_SLProps props1(surf1, u1, v1, 1, Precision::Confusion());
+    if (!props1.IsNormalDefined()) return true;
+    gp_Dir norm1 = props1.Normal();
+    if (face1.Orientation() == TopAbs_REVERSED) norm1.Reverse();
+
+    BRepAdaptor_Surface surf2(face2);
+    double u2 = 0.0, v2 = 0.0;
+    Handle(Geom2d_Curve) c2d2 = BRep_Tool::CurveOnSurface(edge, face2, f, l);
+    if (c2d2.IsNull()) return true;
+    c2d2->Value(midParam).Coord(u2, v2);
+    BRepLProp_SLProps props2(surf2, u2, v2, 1, Precision::Confusion());
+    if (!props2.IsNormalDefined()) return true;
+    gp_Dir norm2 = props2.Normal();
+    if (face2.Orientation() == TopAbs_REVERSED) norm2.Reverse();
+
+    double angleDeg = norm1.Angle(norm2) * 180.0 / M_PI;
+    if (angleDeg < 10.0 || angleDeg > 170.0)
+        return true;
+
+    return false;
+}
+
+// ==============================
+// IsConvexEdge - 凸凹性鉴别（过滤阳角保留阴角）
+// 工艺原理：探针向两法线合成方向迈步，根据点积判定凸/凹
+// ==============================
+bool WeldExtractor::IsConvexEdge(const TopoDS_Edge& edge, const TopoDS_Face& face1, const TopoDS_Face& face2)
+{
+    double f = 0.0, l = 0.0;
+    Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, f, l);
+    if (curve.IsNull()) return false;
+
+    double midParam = (f + l) * 0.5;
+
+    BRepAdaptor_Surface surf1(face1);
+    double u1 = 0.0, v1 = 0.0;
+    Handle(Geom2d_Curve) c2d1 = BRep_Tool::CurveOnSurface(edge, face1, f, l);
+    if (c2d1.IsNull()) return false;
+    c2d1->Value(midParam).Coord(u1, v1);
+    BRepLProp_SLProps props1(surf1, u1, v1, 1, Precision::Confusion());
+    if (!props1.IsNormalDefined()) return false;
+    gp_Dir norm1 = props1.Normal();
+    if (face1.Orientation() == TopAbs_REVERSED) norm1.Reverse();
+
+    BRepAdaptor_Surface surf2(face2);
+    double u2 = 0.0, v2 = 0.0;
+    Handle(Geom2d_Curve) c2d2 = BRep_Tool::CurveOnSurface(edge, face2, f, l);
+    if (c2d2.IsNull()) return false;
+    c2d2->Value(midParam).Coord(u2, v2);
+    BRepLProp_SLProps props2(surf2, u2, v2, 1, Precision::Confusion());
+    if (!props2.IsNormalDefined()) return false;
+    gp_Dir norm2 = props2.Normal();
+    if (face2.Orientation() == TopAbs_REVERSED) norm2.Reverse();
+
+    // 两法线合成方向作为探针方向
+    gp_Vec combineNorm = gp_Vec(norm1) + gp_Vec(norm2);
+    if (combineNorm.Magnitude() < Precision::Confusion()) return false;
+    combineNorm.Normalize();
+
+    // 若合成方向与 face1 法线的点积为负 → 凸边（阳角）
+    double check1 = combineNorm.Dot(gp_Vec(norm1));
+    if (check1 < 0.0)
+        return true; // 凸边，剔除
+
+    return false; // 凹边（阴角焊缝根部），保留
+}
+
+// ==============================
+// FilterByWeldingProcess - 工艺特征洗白过滤器
+// 第1关：平贴接触过滤（干掉立板端头）
+// 第2关：凸边过滤（干掉双胞胎阳角）
+// ==============================
+void WeldExtractor::FilterByWeldingProcess(const TopoDS_Shape& globalShape)
+{
+    std::vector<WeldSeam> filteredSeams;
+
+    TopTools_IndexedDataMapOfShapeListOfShape edgeFaceMap;
+    TopExp::MapShapesAndAncestors(globalShape, TopAbs_EDGE, TopAbs_FACE, edgeFaceMap);
+
+    for (auto& seam : WeldSeams)
+    {
+        TopoDS_Edge currentEdge;
+        gp_Pnt pStart(seam.StartPoint.X, seam.StartPoint.Y, seam.StartPoint.Z);
+        gp_Pnt pEnd(seam.EndPoint.X, seam.EndPoint.Y, seam.EndPoint.Z);
+
+        TopExp_Explorer expE(globalShape, TopAbs_EDGE);
+        for (; expE.More(); expE.Next())
+        {
+            TopoDS_Edge e = TopoDS::Edge(expE.Current());
+            double uFirst = 0.0, uLast = 0.0;
+            Handle(Geom_Curve) c = BRep_Tool::Curve(e, uFirst, uLast);
+            if (!c.IsNull())
+            {
+                gp_Pnt p1 = c->Value(uFirst);
+                gp_Pnt p2 = c->Value(uLast);
+                if ((p1.Distance(pStart) < 1.0 && p2.Distance(pEnd) < 1.0) ||
+                    (p1.Distance(pEnd) < 1.0 && p2.Distance(pStart) < 1.0))
+                {
+                    currentEdge = e;
+                    break;
+                }
+            }
+        }
+
+        if (currentEdge.IsNull() || !edgeFaceMap.Contains(currentEdge))
+            continue;
+
+        const TopTools_ListOfShape& faceList = edgeFaceMap.FindFromKey(currentEdge);
+        if (faceList.Extent() < 2) continue;
+
+        TopoDS_Face face1 = TopoDS::Face(faceList.First());
+        TopoDS_Face face2 = TopoDS::Face(faceList.Last());
+
+        // 第1关：平贴接触过滤（立板端头）
+        if (CheckIfFlatContact(currentEdge, face1, face2))
+            continue;
+
+        // 第2关：凸边/阳角过滤（双胞胎平行阳角）
+        if (IsConvexEdge(currentEdge, face1, face2))
+            continue;
+
+        filteredSeams.push_back(seam);
+    }
+
+    WeldSeams = std::move(filteredSeams);
+
+    // 重新编号
+    for (size_t i = 0; i < WeldSeams.size(); i++)
+        WeldSeams[i].Id = (int)i + 1;
 }
 
 // ========== Weld seam computation entry ==========
