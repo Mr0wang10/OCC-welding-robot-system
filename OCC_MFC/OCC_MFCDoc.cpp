@@ -35,7 +35,7 @@
 #include <limits>
 #include <signal.h>
 #include <setjmp.h>
-#include <eh.h>
+
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -97,6 +97,8 @@
 #include <BRepLib.hxx>
 #include <TopoDS_Wire.hxx>
 #include <TopTools_ListIteratorOfListOfShape.hxx>
+#include <Extrema_ExtPS.hxx>
+#include <BRepExtrema_SupportType.hxx>
 
 #include "MainFrm.h"
 #include "OCC_MFCDoc.h"
@@ -1414,12 +1416,10 @@ WeldExtractor::~WeldExtractor() {}
 // ==============================
 static jmp_buf g_AbortJmpBuf;
 static void SigAbortHandler(int) { longjmp(g_AbortJmpBuf, 1); }
-static void SEHTranslator(unsigned int, EXCEPTION_POINTERS*) { throw std::exception(); }
 static void SetupAbortCatcher()
 {
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
     signal(SIGABRT, SigAbortHandler);
-    _set_se_translator(SEHTranslator);
 }
 static void RestoreAbortCatcher()
 {
@@ -2402,12 +2402,15 @@ void WeldExtractor::ValidateAndClipSeamsByFaces(const TopoDS_Shape& globalShape)
             // 寻找全局实体中离采样探针点最近的物理 Face
             TopoDS_Face closestFace;
             double minDistance = std::numeric_limits<double>::max();
+            BRepBuilderAPI_MakeVertex mkProbe(samplePt);
+            if (!mkProbe.IsDone()) continue;
+            TopoDS_Shape probeShape = mkProbe.Shape();
 
             TopExp_Explorer expF(globalShape, TopAbs_FACE);
             for (; expF.More(); expF.Next())
             {
                 TopoDS_Face face = TopoDS::Face(expF.Current());
-                BRepExtrema_DistShapeShape extrema(samplePt, face);
+                BRepExtrema_DistShapeShape extrema(probeShape, face);
                 if (extrema.IsDone() && extrema.NbSolution() > 0)
                 {
                     double dist = extrema.Value();
@@ -2426,12 +2429,29 @@ void WeldExtractor::ValidateAndClipSeamsByFaces(const TopoDS_Shape& globalShape)
                 break;
             }
 
-            // 将采样点投影到最近面上，反求 UV 参数
+            // 将空间采样点安全反求出该 Face 上的二维 UV 坐标
             double uParam = 0.0, vParam = 0.0;
-            BRepExtrema_DistShapeShape extremaProj(samplePt, closestFace);
+            BRepExtrema_DistShapeShape extremaProj(probeShape, closestFace);
             if (extremaProj.IsDone() && extremaProj.NbSolution() > 0)
             {
-                extremaProj.ParOnFaceS1(1, uParam, vParam);
+                if (extremaProj.SupportTypeShape2(1) == BRepExtrema_IsInFace)
+                {
+                    extremaProj.ParOnFaceS2(1, uParam, vParam);
+                }
+                else if (extremaProj.SupportTypeShape1(1) == BRepExtrema_IsInFace)
+                {
+                    extremaProj.ParOnFaceS1(1, uParam, vParam);
+                }
+                else
+                {
+                    // 极值落在边/顶点上，降级通过面工具强制反求
+                    BRepAdaptor_Surface adaptSurf(closestFace);
+                    Extrema_ExtPS extPS(samplePt, adaptSurf, Precision::Confusion(), Precision::Confusion());
+                    if (extPS.IsDone() && extPS.NbExt() > 0)
+                    {
+                        extPS.Point(1).Parameter(uParam, vParam);
+                    }
+                }
             }
             else
             {
