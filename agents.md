@@ -1,3 +1,5 @@
+在动手修改代码前，必须先加载 skills/code_guidelines.md 中的 Code Guidelines 约束。
+
 - # OCC_MFC 项目说明
 
   ## 项目简介
