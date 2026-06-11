@@ -280,10 +280,12 @@ fix bug
 
 # 修改完成后输出
 
-必须输出：
+每次代码修改后，必须输出以下信息供用户审核，等待用户明确下达提交命令后再执行 git commit：
 
 1. 修改的代码文件
 2. 更新的文档文件
 3. 修改内容摘要
 4. 文档同步情况
-5. 建议 Commit Message
+5. 建议的 Commit Message（仅建议，不自动执行）
+
+在用户输入"提交"或"commit"等明确指令前，禁止执行 git add、git commit、git push 等操作。
